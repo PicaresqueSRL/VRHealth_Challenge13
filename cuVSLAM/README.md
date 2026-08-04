@@ -37,6 +37,8 @@ current folder:
 The script will copy the launch configuration stored in `mono_rgbd.launch.py` to the `isaac_ros_visual_slam` folder, and
 then will launch the related ROS node.
 
+If you want to use the second camera, you can launch the `mono_cam2_launch.sh` instead. If you want to experiment with IMU, you can use `mono_imu_launch.sh`. These scripts will copy the related _launch_ file directly in the ROS cuVSLAM shared folder.
+
 ### 2. Record
 
 To record the cuVSLAM topics as long as they are published, you can use the `record_vslam.sh` script. From another
@@ -89,10 +91,10 @@ then, activate the RViz2 environment and run the application with:
 
 ```
 source /opt/ros/${ROS_DISTRO}/setup.bash
-rviz2
+rviz2 -d ./cam2.cfg.rviz
 ```
 
-The RViz2 GUI should appear. Then, in another terminal, play the cuVSLAM Rosbag file (we suggest to start it in paused and loop mode):
+The RViz2 GUI should appear with the configuration specified. Then, in another terminal, play the cuVSLAM Rosbag file (we suggest to start it in paused and loop mode):
 
 ```
 ros2 bag play -p -l <path to vslam bag file>
