@@ -2,7 +2,9 @@
 
 if [ $# -ne 1 ]; then
 	echo "Usage: $0 <output folder file>"
-	exit 255
+	exit -1
 fi
 
-ros2 bag record -e "(/tf(.*)|(/visual.slam/(.*)))" -o "$1" 
+outpath=$1
+
+ros2 bag record -e "(/tf(.*)|(/visual.slam/(.*))|/cam2/color/image.raw)" -o "$1" 
