@@ -1,0 +1,14 @@
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# Display del monitor della Jetson
+ENV DISPLAY=:1
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update \
+    && apt-get install -y \
+        ros-lyrical-isaac-ros-cuvslam \
+        ros-lyrical-rviz2 \
+        curl jq tar unzip wget
