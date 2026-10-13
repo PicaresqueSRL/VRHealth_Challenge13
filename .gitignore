@@ -3,3 +3,10 @@ cuVSLAM/__pycache__
 cuVSLAM/stereo_cam2_launch.sh
 cuVSLAM/stereo_cam2.launch.py
 cuVSLAM/stereo_cam1.launch.py
+# Recorded data and downloads (share bags through a drive)
+bags/
+*.db3
+*.mcap
+*.zip
+*.bin
+__pycache__/
