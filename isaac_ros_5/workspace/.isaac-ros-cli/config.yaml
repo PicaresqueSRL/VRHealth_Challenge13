@@ -1,0 +1,5 @@
+docker:
+  image:
+    additional_image_keys:
+      - realsense
+      - cuvslam
