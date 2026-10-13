@@ -1,0 +1,1 @@
+CONFIG_DOCKER_SEARCH_DIRS=(${ISAAC_ROS_WS}/docker /etc/isaac-ros-cli/docker)
