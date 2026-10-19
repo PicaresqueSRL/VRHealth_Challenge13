@@ -9,5 +9,8 @@ bags/
 *.mcap
 *.zip
 *.bin
+*.log
 __pycache__/
 isaac_ros_5/tools
+results/stereo_ir_cam2
+results/stereo_imu_cam2/summary_detailed.csv
