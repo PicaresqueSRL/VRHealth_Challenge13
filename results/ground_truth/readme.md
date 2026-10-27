@@ -216,7 +216,18 @@ Ground-truth paths extracted from SVG floorplans typically contain only sparse c
 
 ### Error Metrics Logged in `alignment_results.log`
 
-Given $N_{\text{src}}$ aligned source points $P'_i = s R P_i + t$ and $N_{\text{dst}}$ densified target points $Q_j$, let $d(P'_i, Q) = \min_j \Vert{} P'_i - Q_j \Vert{}_2$ denote the Euclidean distance from $P'_i$ to its closest target point, and $d(Q_j, P') = \min_i \Vert{} Q_j - P'_i \Vert{}_2$ denote the distance from $Q_j$ to its closest aligned source point. Three error metrics (in meters) are recorded in the `.log` file:
+Given $N_{\text{src}}$ aligned source points:
+$${P'}_i = s R P_i + t$$
+
+and $N_{\text{dst}}$ densified target points
+$Q_j$, let $d(P'_i, Q) = \min_j \Vert{} P'_i - Q_j \Vert{}_2$ 
+denote the Euclidean distance from 
+$P'_i$ 
+to its closest target point, and 
+$d(Q_j, P') = \min_i \Vert{} Q_j - P'_i \Vert{}_2$ 
+denote the distance from 
+$Q_j$ 
+to its closest aligned source point. Three error metrics (in meters) are recorded in the `.log` file:
 
 **Point-to-Target RMSE (Root Mean Square Error)**:
 
