@@ -173,12 +173,6 @@ Generates a standalone vector plot (`<input_name>_plots.svg`) showing side-by-si
 **Features**:
 * Automatically repairs malformed rows where decimal commas were accidentally split into extra columns.
 
-
-* Groups trajectories by `SUBPATH`, marking the starting vertex of each subpath with a red circle (`#FF0000`) and subsequent vertices with color-coded circles and polylines.
-
-
-
-
 **Usage**:
 ```bash
 python Paths3DToSVG.py <input_file.csv>
