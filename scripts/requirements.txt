@@ -1,0 +1,7 @@
+# Dependencies of bag_to_cuvslam.py (no ROS dependency)
+#   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+numpy>=1.24
+opencv-python-headless>=4.8
+# only for compressed .mcap bags
+zstandard>=0.22
+lz4>=4.3
