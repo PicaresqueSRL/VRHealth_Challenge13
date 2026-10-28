@@ -1,0 +1,11 @@
+=== Rigid Trajectory ICP (No Scaling) Completed ===
+Source File             : D:\VRHealth\VRHealth_Challenge13\results\slam_csv\cam1_cam2_stereo\staircases_102\slam_poses.csv
+Target File             : D:\VRHealth\VRHealth_Challenge13\results\ground_truth\staircases_102\paths3d.csv
+Target Points           : 12 raw -> 2176 densified
+Source Points           : 807
+Iterations              : 43
+Applied Scale Factor    : 1.000000
+Point-to-Target RMSE    : 2.364411 m
+Symmetric Chamfer RMSE  : 2.543226 m
+Mean Euclidean Error    : 2.065295 m
+Aligned path saved to   : D:\VRHealth\VRHealth_Challenge13\results\ground_truth\staircases_102\aligned_odometry.csv
