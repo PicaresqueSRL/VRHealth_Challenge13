@@ -29,11 +29,20 @@ Examples:
     # Mono on the RGB of cam2
     python3 track_bag_rerun.py $B --mode mono --streams cam2/rgb
 
+    # save the cuVSLAM output in the same CSV format as the Isaac ROS runs (see run_output.py)
+    python3 track_bag_rerun.py $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --slam \
+        --out-dir runs/bag/loop_closure --no-viewer
+
+Output for comparisons (--out-dir): odometry.csv, slam_poses.csv, slam_online.csv, status.csv,
+slam_metrics.csv, loop_closures.csv, run_info.json. The poses are those of the base frame
+(--base-frame, default <cam>_link of the reference stream), relative to the first pose.
+
 Requirements: cuvslam bindings, rerun-sdk==0.33.1, numpy, opencv-python, zstandard/lz4 for compressed MCAP.
 Uses functions from bag_to_cuvslam.py, merge_rig_edex.py and track_edex_rerun.py (same folder).
 """
 
 import argparse
+import json
 import os
 import statistics
 import sys
@@ -91,7 +100,26 @@ def parse_args():
     ap.add_argument("--tum", default=None, help="save the odometry trajectory in TUM format")
     ap.add_argument("--slam-tum", default=None, help="save the SLAM trajectory in TUM format")
     ap.add_argument("--verbosity", type=int, default=1, help="cuvslam.set_verbosity (0-3)")
+    ap.add_argument("--out-dir", default=None,
+                    help="save the cuVSLAM output (CSV in the Isaac ROS format + run_info.json) to this folder")
+    ap.add_argument("--base-frame", default=None,
+                    help="frame of the saved poses (default: <cam>_link of the reference stream; "
+                         "'rig' = no conversion)")
+    ap.add_argument("--async-sba", action="store_true",
+                    help="async_sba=True (as in real time; default False: deterministic offline run)")
+    ap.add_argument("--no-viewer", action="store_true", help="do not open the Rerun viewer")
     return ap.parse_args()
+
+
+def make_output_dirs(args, keys):
+    """Create the folders of the output files before anything is written: Rerun opens the .rrd file
+    at startup and fails if its folder does not exist."""
+    for k in keys:
+        v = getattr(args, k, None)
+        if v:
+            v = os.path.abspath(os.path.expanduser(v))
+            setattr(args, k, v)
+            os.makedirs(v if k == "out_dir" else os.path.dirname(v), exist_ok=True)
 
 
 # -----------------------------------------------------------------------------
@@ -273,6 +301,7 @@ def make_blueprint(streams, ent, use_imu):
 # -----------------------------------------------------------------------------
 def main():
     args = parse_args()
+    make_output_dirs(args, ('save', 'tum', 'slam_tum', 'out_dir'))
     bag = Bag(args.bag)
     types = bag.topic_types()
     cams_in_bag = sorted({t.split("/")[1] for t in types if t.endswith("/color/image_raw")})
@@ -341,7 +370,7 @@ def main():
     odom_cfg = cuvslam.Odometry.Config(
         odometry_mode=MODES[args.mode],
         multicam_mode=getattr(cuvslam.Odometry.MulticameraMode, MULTICAM[args.multicam_mode]),
-        async_sba=False,
+        async_sba=args.async_sba,
         rectified_stereo_camera=args.rectified,
         enable_observations_export=True,
         enable_landmarks_export=True,
@@ -356,7 +385,7 @@ def main():
 
     # --- Rerun ---------------------------------------------------------------------
     ent = {si: f"world/rig/{s['cam']}_{s['role']}" for si, s in enumerate(streams)}
-    rr.init("cuVSLAM bag", spawn=args.save is None)
+    rr.init("cuVSLAM bag", spawn=args.save is None and not args.no_viewer)
     if args.save:
         rr.save(args.save)
     rr.send_blueprint(make_blueprint(streams, ent, use_imu))
@@ -378,6 +407,24 @@ def main():
 
     log(f"Mode {args.mode}, streams {names}, IMU {'yes' if use_imu else 'no'}, "
         f"SLAM {'yes' if args.slam else 'no'}")
+    writer = None
+    if args.out_dir:
+        from run_output import RunWriter, cuvslam_version
+        if args.base_frame == "rig":
+            T_rb, base = np.eye(4), "rig"
+        else:
+            base = args.base_frame or args.link_frame.format(cam=streams[0]["cam"])
+            T_rb = tf.lookup(ref_frame, base)
+            if T_rb is None:
+                sys.exit(f"Transform {ref_frame} <- {base} not found in /tf_static (use --base-frame)")
+        writer = RunWriter(args.out_dir, T_rb, base, len(streams), {
+            "script": "track_bag_rerun.py", "input": os.path.abspath(os.path.expanduser(args.bag)),
+            "mode": args.mode, "streams": names, "slam": args.slam, "imu": use_imu,
+            "rectified": args.rectified, "async_sba": args.async_sba, "tolerance_ms": args.tolerance_ms,
+            "start": args.start, "end": args.end, "max_frames": args.max_frames,
+            "base_frame_source": "/tf_static of the bag", "cuvslam_version": cuvslam_version(cuvslam),
+            "frames_in_input": len(frames),
+            "frames_with_all_streams": sum(len(f["keys"]) == len(streams) for f in frames)})
     log("Pass 2/2: tracking ...")
     t0 = frames[0]["ts"]
     imu = [x for x in imu if x[0] >= t0]
@@ -413,8 +460,15 @@ def main():
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             images.append(np.ascontiguousarray(img))
 
+        t_track = time.perf_counter()
         est, slam_pose = tracker.track(ts, images)
+        track_ms = (time.perf_counter() - t_track) * 1000
         last_ts = ts
+        if writer is not None:
+            obs_n = {si: len(tracker.odometry.get_last_observations(si) or [])
+                     for si in range(len(streams)) if images[si].size}
+            writer.add_frame(ts, est, slam_pose if args.slam else None, obs_n,
+                             len(tracker.odometry.get_last_landmarks() or []), track_ms, tracker)
         rr.set_time("frame", sequence=n)
         rr.set_time("time", duration=(ts - t0) / NS)
         if est.world_from_rig is None:
@@ -466,6 +520,9 @@ def main():
             with open(path, "w") as f:
                 for r in rows:
                     f.write(" ".join(f"{v:.9f}" for v in r) + "\n")
+    if writer is not None:
+        summary = writer.finish(tracker, args.slam, len(final) if final else 0)
+        log(f"cuVSLAM output saved to {args.out_dir}: {json.dumps(summary)}")
     if traj:
         drift = np.linalg.norm(np.array(traj[-1]) - np.array(traj[0]))
         log(f"Distance between first and last pose (odometry): {drift:.3f} m")

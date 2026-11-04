@@ -24,6 +24,16 @@ Examples:
     # save the recording instead of opening the viewer, and the trajectory in TUM format
     python3 track_edex_rerun.py .../cam2/stereo.edex --mode mono --save run.rrd --tum odom.txt
 
+    # save the cuVSLAM output in the same CSV format as the Isaac ROS runs (see run_output.py),
+    # with the poses of cam2_link; the EDEX must be created with --reference ir (cameras 0 1 = IR pair)
+    python3 track_edex_rerun.py .../cam2/stereo.edex --mode inertial --cameras 0 1 --rectified --slam \
+        --out-dir runs/edex/loop_closure --no-viewer
+
+Output for comparisons (--out-dir): odometry.csv, slam_poses.csv, slam_online.csv, status.csv,
+slam_metrics.csv, loop_closures.csv, run_info.json. The poses are converted from the rig (first
+selected camera, OpenCV axes) to the base frame (--base-frame, default <cam>_link), using
+/tf_static of the source bag (--bag, default: read from ../bag_report.json written by bag_to_cuvslam.py).
+
 Requirements: cuvslam bindings installed, rerun-sdk==0.33.1, numpy, opencv-python.
 """
 
@@ -227,7 +237,7 @@ def color_from_id(i):
 
 
 def setup_rerun(args, cam_ids, intr):
-    rr.init("cuVSLAM EDEX", spawn=args.save is None)
+    rr.init("cuVSLAM EDEX", spawn=args.save is None and not args.no_viewer)
     if args.save:
         rr.save(args.save)
     rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)  # OpenCV
@@ -240,6 +250,63 @@ def setup_rerun(args, cam_ids, intr):
                                 principal_point=[float(x) for x in p["principal"]],
                                 width=int(p["size"][0]), height=int(p["size"][1]),
                                 image_plane_distance=0.3), static=True)
+
+
+def make_output_dirs(args, keys):
+    """Create the folders of the output files before anything is written: Rerun opens the .rrd file
+    at startup and fails if its folder does not exist."""
+    for k in keys:
+        v = getattr(args, k, None)
+        if v:
+            v = os.path.abspath(os.path.expanduser(v))
+            setattr(args, k, v)
+            os.makedirs(v if k == "out_dir" else os.path.dirname(v), exist_ok=True)
+
+
+# -----------------------------------------------------------------------------
+# Base frame for the saved output
+# -----------------------------------------------------------------------------
+def base_from_rig(args, first_cam):
+    """Return (T_rig_from_base, base_frame, source). The rig is the first selected EDEX camera.
+    Uses calibration.json (written next to stereo.edex by bag_to_cuvslam.py) for the frame names
+    and /tf_static of the source bag for the transform."""
+    edex_dir = os.path.dirname(os.path.abspath(args.edex))
+    with open(args.edex) as f:
+        header, _ = json.load(f)
+    T_edexrig_from_cam = edex_camera_to_opencv(header["cameras"][first_cam]["transform"])
+    if args.base_frame == "rig":
+        return np.eye(4), "rig", "rig frame (no conversion)"
+    cal_path = os.path.join(edex_dir, "calibration.json")
+    if not os.path.exists(cal_path):
+        print("WARNING: calibration.json not found next to the EDEX: poses saved in the rig frame",
+              file=sys.stderr)
+        return np.eye(4), "rig", "rig frame (calibration.json missing)"
+    with open(cal_path) as f:
+        rig_frame = json.load(f)["rig_frame"]
+    base = args.base_frame or rig_frame.split("_")[0] + "_link"
+    bag_path = args.bag
+    if bag_path is None:
+        rep = os.path.join(os.path.dirname(edex_dir), "bag_report.json")
+        if os.path.exists(rep):
+            with open(rep) as f:
+                bag_path = json.load(f).get("bag")
+    if not bag_path or not os.path.exists(os.path.expanduser(bag_path)):
+        print(f"WARNING: source bag not found ({bag_path}): use --bag. Poses saved in the rig frame",
+              file=sys.stderr)
+        return np.eye(4), "rig", "rig frame (bag not found)"
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from bag_to_cuvslam import Bag, TfTree, decode_tf
+    bag = Bag(bag_path)
+    tf = TfTree()
+    for _t, _r, _k, data in bag.iterate({"/tf_static"}):
+        for parent, child, t, q in decode_tf(data):
+            tf.add(parent, child, t, q)
+    T_base_from_edexrig = tf.lookup(base, rig_frame)
+    if T_base_from_edexrig is None:
+        sys.exit(f"Transform {base} <- {rig_frame} not found in /tf_static of {bag_path} "
+                 f"(frames: {', '.join(tf.frames())}). Use --base-frame")
+    T_rig_from_base = np.linalg.inv(T_base_from_edexrig @ T_edexrig_from_cam)
+    return T_rig_from_base, base, f"/tf_static of {bag_path}"
 
 
 # -----------------------------------------------------------------------------
@@ -272,7 +339,17 @@ def main():
     ap.add_argument("--save", default=None, help="save to an .rrd file instead of opening the viewer")
     ap.add_argument("--tum", default=None, help="save the odometry trajectory in TUM format")
     ap.add_argument("--verbosity", type=int, default=1, help="cuvslam.set_verbosity (0-3)")
+    ap.add_argument("--out-dir", default=None,
+                    help="save the cuVSLAM output (CSV in the Isaac ROS format + run_info.json) to this folder")
+    ap.add_argument("--base-frame", default=None,
+                    help="frame of the saved poses (default: <cam>_link of the EDEX rig; 'rig' = no conversion)")
+    ap.add_argument("--bag", default=None,
+                    help="source bag for /tf_static (default: from ../bag_report.json)")
+    ap.add_argument("--async-sba", action="store_true",
+                    help="async_sba=True (as in real time; default False: deterministic offline run)")
+    ap.add_argument("--no-viewer", action="store_true", help="do not open the Rerun viewer")
     args = ap.parse_args()
+    make_output_dirs(args, ('save', 'tum', 'out_dir'))
 
     cam_ids = args.cameras if args.cameras is not None else ([0] if args.mode == "mono" else None)
     cam_ids, cameras, intr, imu_cfg, imu_path, frames = load_edex(args.edex, cam_ids)
@@ -300,7 +377,7 @@ def main():
     rig = cuvslam.Rig(cameras=cameras, imus=[imu_cfg] if use_imu else [])
     odom_cfg = cuvslam.Odometry.Config(
         odometry_mode=MODES[args.mode],
-        async_sba=False,
+        async_sba=args.async_sba,
         rectified_stereo_camera=args.rectified,
         enable_observations_export=True,
         enable_landmarks_export=True,
@@ -319,6 +396,17 @@ def main():
     imu_idx = 0
 
     setup_rerun(args, cam_ids, intr)
+    writer = None
+    if args.out_dir:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from run_output import RunWriter, cuvslam_version
+        T_rb, base, src = base_from_rig(args, cam_ids[0])
+        writer = RunWriter(args.out_dir, T_rb, base, len(cam_ids), {
+            "script": "track_edex_rerun.py", "input": os.path.abspath(args.edex), "mode": args.mode,
+            "cameras": cam_ids, "slam": args.slam, "imu": use_imu, "rectified": args.rectified,
+            "async_sba": args.async_sba, "start": args.start, "max_frames": args.max_frames,
+            "base_frame_source": src, "cuvslam_version": cuvslam_version(cuvslam),
+            "frames_in_input": len(frames), "frames_spread_over_1ms": spread_bad})
     print(f"Mode {args.mode}, cameras {cam_ids}, IMU {'yes' if use_imu else 'no'}, "
           f"SLAM {'yes' if args.slam else 'no'}, frames {len(frames)}", file=sys.stderr)
 
@@ -365,8 +453,15 @@ def main():
                 if images[k].size:
                     print(f"  camera {c}: image passed to cuVSLAM {images[k].shape[1]}x{images[k].shape[0]}, "
                           f"size in the EDEX {intr[k]['size'][0]}x{intr[k]['size'][1]}", file=sys.stderr)
+        t_track = time.perf_counter()
         est, slam_pose = tracker.track(ts, images)
+        track_ms = (time.perf_counter() - t_track) * 1000
         last_ts = ts
+        if writer is not None:
+            obs_n = {k: len(tracker.odometry.get_last_observations(k) or [])
+                     for k in range(len(images)) if images[k].size}
+            writer.add_frame(ts, est, slam_pose if args.slam else None, obs_n,
+                             len(tracker.odometry.get_last_landmarks() or []), track_ms, tracker)
 
         rr.set_time("frame", sequence=fr["frame_id"])
         rr.set_time("time", duration=(ts - t0) / NS)
@@ -429,6 +524,9 @@ def main():
         with open(args.tum, "w") as f:
             for r in tum_rows:
                 f.write(" ".join(f"{v:.9f}" for v in r) + "\n")
+    if writer is not None:
+        summary = writer.finish(tracker, args.slam, len(final) if final else 0)
+        print(f"cuVSLAM output saved to {args.out_dir}: {json.dumps(summary)}", file=sys.stderr)
     print(f"Done: {len(tum_rows)} poses, {lost} frames with tracking lost"
           + (f", trajectory in {args.tum}" if args.tum else ""), file=sys.stderr)
 
