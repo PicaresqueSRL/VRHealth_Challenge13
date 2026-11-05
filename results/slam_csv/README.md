@@ -88,13 +88,6 @@ previous frame, divided by the window and by the number of cores, gives the load
 CPU percentages refer to **all 6 cores** (100% = all cores busy), so `cuvslam_cpu_%`
 and `jetson_cpu_%` are directly comparable, and the first is part of the second.
 
-**Per-frame `jetson_cpu_%` can exceed 100%.** `/proc/schedstat` adds a thread's run
-time to the core only when the thread leaves it: time accumulated over several frames
-can land in a single window (observed up to 204%), and the previous windows read too
-low. The mean over time is correct; the per-frame maximum is not, so the summary
-reports the maximum over 1 s intervals instead (see below). The cuVSLAM process clock
-does not have this problem.
-
 ## `summary.csv` and `summary.md`
 
 One row per bag. `summary.md` contains the same table in Markdown.
