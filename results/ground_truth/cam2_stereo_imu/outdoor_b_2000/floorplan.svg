@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generator: Adobe Illustrator 25.0.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
+	 viewBox="0 0 1920 1080" style="enable-background:new 0 0 1920 1080;" xml:space="preserve">
+<style type="text/css">
+	.st0{fill:none;stroke:#1D1D1B;stroke-width:0.5855;stroke-miterlimit:10;}
+	.st1{fill:#1D1D1B;}
+	.st2{font-family:'MyriadPro-Regular';}
+	.st3{font-size:12px;}
+	.st4{fill:none;stroke:#1D1D1B;stroke-miterlimit:10;}
+	.st5{fill:#E20613;stroke:#E20613;stroke-width:0.9767;stroke-miterlimit:10;}
+	.st6{fill:none;stroke:#F29100;stroke-width:0.9767;stroke-miterlimit:10;}
+	.st7{fill:#F29100;stroke:#F29100;stroke-width:0.9767;stroke-miterlimit:10;}
+</style>
+<g id="PERIMETRI">
+	<line class="st0" x1="843.4" y1="436.4" x2="843.4" y2="607.2"/>
+	<line class="st0" x1="924.2" y1="436.4" x2="924.2" y2="607.2"/>
+	<line class="st0" x1="756.4" y1="607.2" x2="843.4" y2="607.2"/>
+	<line class="st0" x1="756.4" y1="686.3" x2="966.9" y2="686.3"/>
+	<line class="st0" x1="924.2" y1="607.2" x2="966.9" y2="607.2"/>
+	<rect x="768" y="675.7" class="st0" width="34.3" height="6.1"/>
+	<rect x="768" y="665" class="st0" width="34.3" height="6.1"/>
+	<rect x="768" y="654.4" class="st0" width="34.3" height="6.1"/>
+	<rect x="768" y="643.7" class="st0" width="34.3" height="6.1"/>
+	<rect x="768" y="633" class="st0" width="34.3" height="6.1"/>
+	<rect x="768" y="622.4" class="st0" width="34.3" height="6.1"/>
+	<rect x="768" y="611.7" class="st0" width="34.3" height="6.1"/>
+</g>
+<g id="MISURA">
+	<g>
+		<text transform="matrix(1 0 0 1 613.7603 605.1009)" class="st1 st2 st3">5m</text>
+		<line class="st4" x1="595.3" y1="590.7" x2="652.2" y2="590.7"/>
+	</g>
+</g>
+<g id="PERCORSI">
+	<g>
+		<circle class="st5" cx="785.2" cy="692" r="2.2"/>
+		<g>
+			<line class="st6" x1="785.2" y1="605.8" x2="785.2" y2="689.8"/>
+			<line class="st6" x1="787.3" y1="602.6" x2="785" y2="606.1"/>
+			<line class="st6" x1="791" y1="601.6" x2="787.1" y2="602.9"/>
+			<line class="st6" x1="822" y1="601.6" x2="790.9" y2="601.6"/>
+			<circle class="st7" cx="785.2" cy="607.3" r="2.2"/>
+			<circle class="st7" cx="787.4" cy="602.1" r="2.2"/>
+			<circle class="st7" cx="792.8" cy="601" r="2.2"/>
+		</g>
+	</g>
+</g>
+</svg>

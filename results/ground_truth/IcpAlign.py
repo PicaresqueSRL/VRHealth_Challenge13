@@ -153,6 +153,11 @@ def run_trajectory_icp(source, dense_target, src_subpaths=None, allow_scale=True
     """
     Globally initializes scale, rotation, and translation and refines with bidirectional ICP.
     """
+    # Swap Y-axis direction for source points before densifying
+    source = np.copy(source)
+    source[:, 1] = -source[:, 1]
+    source[:, 2] = -source[:, 2]
+
     src_resampled = resample_by_arclength(
         densify_path(source, src_subpaths, max_step=0.05, min_total_points=500),
         num_samples=500
