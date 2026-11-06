@@ -1,0 +1,18 @@
+Subfolder,Mode,Target Points (Raw),Target Points (Densified),Source Points,Iterations,Applied Scale Factor,Point-to-Target RMSE,Symmetric Chamfer RMSE,Mean Euclidean Error
+build_in_out,Rigid Trajectory ICP (No Scaling),10,2006,681,41,1.000000,0.432758,0.427791,0.309713
+build_out_in,Rigid Trajectory ICP (No Scaling),8,2005,596,97,1.000000,1.037672,0.843035,0.762786
+building_in_108,Rigid Trajectory ICP (No Scaling),8,2005,221,78,1.000000,0.814775,0.750219,0.698623
+cars_106,Rigid Trajectory ICP (No Scaling),2,2001,100,2,1.000000,0.000000,1.577463,0.000000
+elevator_down_107,Rigid Trajectory ICP (No Scaling),4,2001,686,116,1.000000,0.613379,0.453569,0.536898
+elevator_up_103,Rigid Trajectory ICP (No Scaling),3,2001,394,14,1.000000,0.299329,1.084473,0.268202
+internal_corridor_104,Rigid Trajectory ICP (No Scaling),2,2002,461,79,1.000000,3.020213,2.136274,1.705545
+loop_closure,Rigid Trajectory ICP (No Scaling),39,2438,709,16,1.000000,1.171187,1.495248,0.989753
+loop_closure_2,Rigid Trajectory ICP (No Scaling),22,2118,441,15,1.000000,18.580258,13.394524,14.484319
+low_detail,Rigid Trajectory ICP (No Scaling),2,2001,533,135,1.000000,0.550877,0.435426,0.327325
+low_detail_2,Rigid Trajectory ICP (No Scaling),2,2001,158,6,1.000000,0.024191,2.520588,0.019683
+low_detail_3,Rigid Trajectory ICP (No Scaling),2,2001,57,7,1.000000,0.220345,0.826804,0.174921
+outdoor_b_2000,Rigid Trajectory ICP (No Scaling),8,2004,471,48,1.000000,0.484712,0.391225,0.366152
+pedestrians_105,Rigid Trajectory ICP (No Scaling),13,2543,372,15,1.000000,1.825561,2.489042,1.564640
+staircases_102,Rigid Trajectory ICP (No Scaling),12,2176,807,43,1.000000,2.364411,2.543226,2.065295
+staircases_fix_1,Rigid Trajectory ICP (No Scaling),9,2005,902,57,1.000000,1.329058,1.890316,1.183725
+staircases_up_109,Rigid Trajectory ICP (No Scaling),6,2003,467,72,1.000000,1.292532,1.141777,0.980554
