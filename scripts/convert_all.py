@@ -9,7 +9,7 @@ Rules:
   * vslam* folders, converted (as a capture on its own) and the output folder are skipped;
   * bags without camera topics (e.g. SLAM output only) are reported and skipped.
 
-For each capture it runs bag_to_cuvslam.py with --reference auto and saves:
+For each capture it runs bag2edex.py with --reference auto (or the script given with --converter) and saves:
   <output>/<relative path>/<cam>/...         EDEX per camera
   <output>/<relative path>/bag_report.json   statistics for the report
   <output>/<relative path>/convert.log       conversion log
@@ -18,6 +18,7 @@ and finally <output>/conversion_summary.json.
 Usage:
     python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex
     python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex --list   # list only
+    python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex --converter bag2edex_modes.py
 """
 
 import argparse
@@ -68,7 +69,8 @@ def main():
                     help="skip captures that already have bag_report.json in the output")
     ap.add_argument("--only", nargs="+", default=None, help="convert only these relative paths")
     ap.add_argument("--workers", type=int, default=max(2, min(8, os.cpu_count() or 4)))
-    ap.add_argument("--extra", default="", help="extra arguments for bag_to_cuvslam.py")
+    ap.add_argument("--converter", default="bag2edex.py", help="conversion script, in the folder of this script")
+    ap.add_argument("--extra", default="", help="extra arguments for the conversion script")
     args = ap.parse_args()
 
     root = os.path.expanduser(args.root)
@@ -101,8 +103,9 @@ def main():
             continue
         os.makedirs(dst, exist_ok=True)
         log_path = os.path.join(dst, "convert.log")
-        cmd = [sys.executable, os.path.join(HERE, "bag_to_cuvslam.py"), src, "-o", dst,
-               "--reference", "auto", "--overwrite", "--workers", str(args.workers)] + args.extra.split()
+        cmd = [sys.executable, os.path.join(HERE, args.converter), src, "-o", dst, "--overwrite",
+               "--workers", str(args.workers)] + (["--reference", "auto"] if args.converter == "bag2edex.py" else []) + \
+            args.extra.split()
         print(f"[{n}/{len(caps)}] {rel} ({kind}) ...", flush=True)
         t0 = time.time()
         with open(log_path, "w") as lf:
@@ -113,7 +116,7 @@ def main():
         with open(log_path) as lf:
             tail = lf.read().strip().splitlines()[-3:]
         status = "ok" if rc == 0 else "error"
-        if rc != 0 and any("No cameras found" in t for t in tail):
+        if rc != 0 and any("No cameras" in t for t in tail):
             status = "no cameras"
         summary[rel] = {"source": src, "kind": kind, "status": status, "returncode": rc,
                         "seconds": round(dt, 1), "log": log_path, "tail": tail}

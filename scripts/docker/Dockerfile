@@ -1,5 +1,5 @@
 # Container that runs every tool in VRHealth_Challenge13/scripts:
-#   bag_to_cuvslam.py, convert_all.py, merge_rig_edex.py, compare_runs.py   (numpy, OpenCV, matplotlib)
+#   bag2edex.py, convert_all.py, merge_rig_edex.py, compare_runs.py   (numpy, OpenCV, matplotlib)
 #   track_edex_rerun.py, track_bag_rerun.py                                 (+ PyCuVSLAM, Rerun SDK, GPU)
 #   db3_to_mcap.sh, all_db3_to_mcap.sh                                      (+ rosbags)
 #

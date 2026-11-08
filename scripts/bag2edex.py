@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bag_to_cuvslam.py - Converts a ROS 2 bag (.db3 / .mcap) recorded with Intel RealSense
+bag2edex.py - Converts a ROS 2 bag (.db3 / .mcap) recorded with Intel RealSense
 cameras (e.g. D455) into the EDEX format read by cuVSLAM (https://github.com/nvidia-isaac/cuVSLAM).
 
 Does not require ROS: it reads the sqlite3 database (.db3) or the MCAP file directly and
@@ -18,7 +18,8 @@ For each camera (e.g. cam1, cam2) it produces a folder containing:
     └── images/
         ├── rgb/000000.jpg ...
         ├── infra1/000000.png ...   (same index as the RGB frame they are matched to)
-        └── infra2/000000.png ...
+        ├── infra2/000000.png ...
+        └── depth/000000.png ...    (with --depth: depth aligned to the RGB, 16-bit PNG)
 
 Synchronization (per camera, independent of the others):
   * all RGB frames are kept and define the EDEX frames (camera 0);
@@ -29,8 +30,23 @@ Synchronization (per camera, independent of the others):
   * The time used is the header stamp (default) or the bag receive time
     (--time receive). The same time is written to the EDEX and to the IMU.
 
+Depth (--depth, off by default): only depth aligned to the RGB image is written, as 16-bit PNG
+with the same index as the RGB frame (raw depth units, millimeters for RealSense: depth_scale_factor 1000).
+  * --depth-source auto (default): /<cam>/aligned_depth_to_color/image_raw when the bag has it,
+    otherwise computed from /<cam>/depth/image_rect_raw as the librealsense align block does
+    (deproject each depth pixel, move it to the RGB frame with /tf_static, project it with the RGB
+    intrinsics and distortion, fill the footprint of the pixel, keep the nearest value);
+    'recorded' or 'computed' force one of the two.
+  * Each depth image is attached to the RGB frame with the same stamp, within --depth-tolerance-ms
+    (default 1 ms): cuVSLAM has no timestamp for depth and assumes it was taken with the image.
+    RGB frames without depth stay without depth; the real depth stamp is written to the EDEX.
+  * The RGB camera gets "depth_id": 0 and "depth_scale_factor"; frame_metadata.jsonl gets a "depth"
+    list (id 0) and the body a "depth_sequence". With --reference rgb (RGB = camera 0) the layout is the
+    one of the cuVSLAM RGB-D datasets; with --reference ir the RGB camera is camera 2: the C++ EDEX reader
+    uses depth_id as the index of the depth stream (0), while the cuVSLAM Python tools read it as a camera id.
+
 Example:
-    python3 bag_to_cuvslam.py ~/dotlumen/Captures/3_Staircases/staircases_102 \\
+    python3 bag2edex.py ~/dotlumen/Captures/3_Staircases/staircases_102 \\
         --output ~/dotlumen/Captures/3_Staircases/staircases_102/edex
 
 See `--help` for all options.
@@ -456,6 +472,88 @@ def image_to_cv(img):
     raise ValueError(f"unsupported image encoding: {img['encoding']}")
 
 
+def depth_to_u16(img):
+    """16UC1 / mono16 image -> uint16 array (raw depth units)."""
+    enc = img["encoding"].lower()
+    if enc not in ("16uc1", "mono16"):
+        raise ValueError(f"unsupported depth encoding: {img['encoding']}")
+    h, w, step = img["height"], img["width"], img["step"]
+    raw = np.frombuffer(img["data"], dtype=np.uint8)
+    return raw.reshape(h, step)[:, :w * 2].copy().view("<u2").reshape(h, w)
+
+
+def distort_normalized(x, y, d, model="plumb_bob"):
+    """Undistorted normalized coordinates -> distorted ones, with ROS plumb_bob coefficients
+    [k1, k2, p1, p2, k3].
+    'plumb_bob': forward Brown-Conrady (OpenCV, as cuVSLAM reads brown5k).
+    'inverse': librealsense RS2_DISTORTION_INVERSE_BROWN_CONRADY, whose polynomial maps distorted to
+               undistorted coordinates; projecting needs its inverse, found by fixed-point iteration."""
+    d = list(d) + [0.0] * (5 - len(d))
+    k1, k2, p1, p2, k3 = d[:5]
+    if not any(abs(v) > 0 for v in (k1, k2, p1, p2, k3)):
+        return x, y
+    if model == "plumb_bob":
+        r2 = x * x + y * y
+        f = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
+        return (x * f + 2 * p1 * x * y + p2 * (r2 + 2 * x * x),
+                y * f + 2 * p2 * x * y + p1 * (r2 + 2 * y * y))
+    xd, yd = x.copy(), y.copy()
+    for _ in range(10):
+        r2 = xd * xd + yd * yd
+        f = 1 + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2
+        xd = (x - 2 * p1 * xd * yd - p2 * (r2 + 2 * xd * xd)) / f
+        yd = (y - 2 * p2 * xd * yd - p1 * (r2 + 2 * yd * yd)) / f
+    return xd, yd
+
+
+def align_depth_to_color(depth, depth_info, color_info, T_color_from_depth, depth_scale=0.001,
+                         color_model="plumb_bob"):
+    """Depth image (uint16, raw units) -> depth aligned to the color image (color resolution, raw units),
+    reproducing the librealsense align block (align_z_to_other):
+      * each valid depth pixel is deprojected at its two corners (u -/+ 0.5, v -/+ 0.5) with the depth
+        intrinsics, moved to the color frame and projected with the color intrinsics and distortion;
+      * every color pixel inside the projected footprint receives the raw depth value;
+      * when several depth pixels land on the same color pixel the nearest (smallest) value is kept.
+    The value written is the original depth of the sensor, not the z in the color frame."""
+    H, W = int(color_info["height"]), int(color_info["width"])
+    kd, kc = depth_info["k"], color_info["k"]
+    v, u = np.nonzero(depth)
+    if not len(u):
+        return np.zeros((H, W), np.uint16)
+    zr = depth[v, u]
+    z = zr.astype(np.float64) * depth_scale
+    R, t = T_color_from_depth[:3, :3], T_color_from_depth[:3, 3]
+
+    def corner(offset):
+        xn = (u + offset - kd[2]) / kd[0]
+        yn = (v + offset - kd[5]) / kd[4]
+        P = np.stack([xn * z, yn * z, z])
+        Pc = R @ P + t[:, None]
+        zc = Pc[2]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            xd, yd = distort_normalized(Pc[0] / zc, Pc[1] / zc, color_info["d"], color_model)
+        px = kc[0] * xd + kc[2]
+        py = kc[4] * yd + kc[5]
+        ok = (zc > 0) & np.isfinite(px) & np.isfinite(py)
+        # static_cast<int>(x + 0.5f) in librealsense: truncation toward zero
+        return np.where(ok, np.trunc(px + 0.5), -1).astype(np.int64), \
+            np.where(ok, np.trunc(py + 0.5), -1).astype(np.int64), ok
+
+    x0, y0, ok0 = corner(-0.5)
+    x1, y1, ok1 = corner(0.5)
+    valid = ok0 & ok1 & (x0 >= 0) & (y0 >= 0) & (x1 < W) & (y1 < H) & (x1 >= x0) & (y1 >= y0)
+    x0, y0, x1, y1, zr = x0[valid], y0[valid], x1[valid], y1[valid], zr[valid].astype(np.uint32)
+    out = np.full(H * W, np.iinfo(np.uint32).max, dtype=np.uint32)
+    if len(zr):
+        wmax, hmax = int((x1 - x0).max()), int((y1 - y0).max())
+        for dy in range(hmax + 1):
+            for dx in range(wmax + 1):
+                sel = (dx <= x1 - x0) & (dy <= y1 - y0)
+                np.minimum.at(out, (y0[sel] + dy) * W + x0[sel] + dx, zr[sel])
+    out[out == np.iinfo(np.uint32).max] = 0
+    return out.reshape(H, W).astype(np.uint16)
+
+
 # =============================================================================
 # Synchronization
 # =============================================================================
@@ -560,6 +658,20 @@ def parse_args():
                     help="stream that defines the frames (camera 0): rgb, ir pair, or auto = the most frequent")
     ap.add_argument("--dry-run", action="store_true",
                     help="analyze and synchronize without writing images")
+    ap.add_argument("--depth", action="store_true",
+                    help="also write the depth aligned to the RGB image (images/depth, 16-bit PNG)")
+    ap.add_argument("--depth-source", choices=["auto", "recorded", "computed"], default="auto",
+                    help="auto = recorded aligned depth when present, otherwise computed from the native depth")
+    ap.add_argument("--depth-tolerance-ms", type=float, default=1.0,
+                    help="maximum RGB <-> depth offset (cuVSLAM assumes depth taken with the image)")
+    ap.add_argument("--aligned-depth-topic", default="/{cam}/aligned_depth_to_color/image_raw")
+    ap.add_argument("--depth-topic", default="/{cam}/depth/image_rect_raw",
+                    help="native depth, used to compute the aligned depth")
+    ap.add_argument("--depth-info-topic", default="/{cam}/depth/camera_info")
+    ap.add_argument("--depth-scale-factor", type=float, default=1000.0,
+                    help="depth units per meter, written to the EDEX (RealSense: 1000 = millimeters)")
+    ap.add_argument("--depth-color-model", choices=["plumb_bob", "inverse"], default="plumb_bob",
+                    help="distortion model used to project into the RGB image when computing the aligned depth")
     return ap.parse_args()
 
 
@@ -597,6 +709,16 @@ def main():
                 sys.exit(f"Required topic missing: {topic}")
             else:
                 log(f"WARNING: topic {topic} missing, camera {cam} will have no {role}")
+    depth_src = {}  # cam -> "recorded" | "computed", decided after pass 1 (a topic may exist without messages)
+    if args.depth:
+        for cam in cameras:
+            al = args.aligned_depth_topic.format(cam=cam)
+            dn, di = args.depth_topic.format(cam=cam), args.depth_info_topic.format(cam=cam)
+            if args.depth_source in ("auto", "recorded") and al in types:
+                streams[(cam, "depth_rec")] = al
+            if args.depth_source in ("auto", "computed") and dn in types and di in types:
+                streams[(cam, "depth_nat")] = dn
+                streams[(cam, "depth_info")] = di
     imu_topic = args.imu_topic.format(cam=imu_cam) if imu_cam else None
     if imu_topic and imu_topic not in types:
         sys.exit(f"IMU topic missing: {imu_topic}")
@@ -645,6 +767,22 @@ def main():
             imu_recv.append((st, recv))
     if bad_header:
         log(f"WARNING: {bad_header} images without a valid stamp, using receive time")
+    for cam in (cameras if args.depth else []):
+        rec, nat = streams.get((cam, "depth_rec")), streams.get((cam, "depth_nat"))
+        if rec and stamps.get(rec):
+            depth_src[cam] = "recorded"
+            streams[(cam, "depth")] = rec
+        elif nat and stamps.get(nat) and streams.get((cam, "depth_info")) in infos:
+            depth_src[cam] = "computed"
+            streams[(cam, "depth")] = nat
+        else:
+            log(f"WARNING: no depth for {cam}: no messages on "
+                + " / ".join(t for t in (args.aligned_depth_topic.format(cam=cam) if args.depth_source != "computed"
+                                         else None,
+                                         args.depth_topic.format(cam=cam) if args.depth_source != "recorded"
+                                         else None) if t))
+    if depth_src:
+        log("Depth: " + ", ".join(f"{c} {s_} ({streams[(c, 'depth')]})" for c, s_ in depth_src.items()))
 
     # "stale" messages: stamp far behind (or ahead of) the receive time, typically the first
     # frame left queued in the driver when recording started. Keeping them creates gaps of
@@ -674,6 +812,7 @@ def main():
     t_hi = bag_t0 + int(args.end * NS) if args.end is not None else None
 
     jobs = []           # (key, out_path, kind, cam, role)
+    depth_params = {}   # cam -> parameters of the computed alignment
     summary = []
     bag_report = {"bag": os.path.abspath(os.path.expanduser(args.bag)),
                   "files": [os.path.basename(f.path) for f in bag.files],
@@ -819,6 +958,44 @@ def main():
         header = {"version": "0.9", "frame_start": 0, "frame_end": len(ref_items) - 1,
                   "cameras": cams_edex}
 
+        # --- depth aligned to the RGB ------------------------------------------
+        depth_of_frame, depth_deltas, depth_job = {}, [], None
+        if cam in depth_src and "rgb" in order:
+            ditems = dedupe(stamps.get(streams[(cam, "depth")], []))
+            rgb_of_frame = [(i, rgb[i] if ref == "rgb" else (rgb[m_assoc[i]] if i in m_assoc else None))
+                            for i in range(len(ref_items))]
+            rgb_of_frame = [(i, it) for i, it in rgb_of_frame if it is not None]
+            md = greedy_match([it[0] for _, it in rgb_of_frame], [x[0] for x in ditems],
+                              int(args.depth_tolerance_ms * 1e6))
+            for a, b in md.items():
+                fi, it = rgb_of_frame[a]
+                depth_of_frame[fi] = ditems[b]
+                depth_deltas.append(ditems[b][0] - it[0])
+            rgb_idx = order.index("rgb")
+            cams_edex[rgb_idx]["depth_id"] = 0
+            cams_edex[rgb_idx]["depth_scale_factor"] = args.depth_scale_factor
+            rgb_info = infos.get(streams.get((cam, "rgb_info")))
+            dcal = {"source": depth_src[cam], "topic": streams[(cam, "depth")], "camera_id": rgb_idx,
+                    "depth_id": 0, "depth_scale_factor": args.depth_scale_factor,
+                    "tolerance_ms": args.depth_tolerance_ms, "frames_with_depth": len(depth_of_frame)}
+            if depth_src[cam] == "computed":
+                dinfo = infos.get(streams[(cam, "depth_info")])
+                if dinfo is None:
+                    sys.exit(f"No camera_info on {streams[(cam, 'depth_info')]}")
+                dframe, cframe = dinfo["frame_id"].lstrip("/"), rgb_info["frame_id"].lstrip("/")
+                T_cd = tf.lookup(cframe, dframe)
+                if T_cd is None:
+                    sys.exit(f"Transform {cframe} <- {dframe} (depth -> RGB) not found in /tf_static")
+                if any(abs(x) > 1e-9 for x in dinfo["d"]):
+                    log(f"WARNING: {cam} depth has non-zero distortion coefficients: ignored (rectified depth)")
+                depth_job = dict(depth_info=dinfo, color_info=rgb_info, T=T_cd,
+                                 scale=1.0 / args.depth_scale_factor, model=args.depth_color_model)
+                dcal.update(depth_frame=dframe, color_frame=cframe, T_color_from_depth=T_cd.tolist(),
+                            color_distortion_model=args.depth_color_model,
+                            depth_camera_info={kk: dinfo[kk] for kk in ("width", "height", "distortion_model",
+                                                                        "d", "k", "p")})
+            calib["depth"] = dcal
+
         # --- IMU -------------------------------------------------------------
         imu_rows = []
         if imu_cam == cam and imu_samples:
@@ -870,12 +1047,16 @@ def main():
         sub = {"rgb": "rgb", "ir1": "infra1", "ir2": "infra2"}
         seq = [[f"images/{sub[r]}/000000.{ext[r]}"] for r in order]
         body = {"frame_metadata": "frame_metadata.jsonl", "sequence": seq}
+        if "depth" in calib:
+            body["depth_sequence"] = [["images/depth/000000.png"]]
 
         s_entry = dict(cam=cam, reference=ref, order=order, frames=len(ref_items), rgb=len(rgb),
                        ir_pairs=len(pairs), matched=len(m_assoc), ir1=len(ir1), ir2=len(ir2),
                        imu=len(imu_rows), raw=stats_ms(raw_d), used=stats_ms(deltas),
                        delta_abs_ms=[abs(d) / 1e6 for d in deltas],
-                       raw_abs_ms=[abs(d) / 1e6 for d in raw_d])
+                       raw_abs_ms=[abs(d) / 1e6 for d in raw_d],
+                       depth_source=calib.get("depth", {}).get("source"), depth_frames=len(depth_of_frame),
+                       depth_abs_ms=[abs(d) / 1e6 for d in depth_deltas])
         summary.append(s_entry)
 
         if args.dry_run:
@@ -886,6 +1067,10 @@ def main():
             shutil.rmtree(cam_dir)
         for r in order:
             os.makedirs(os.path.join(cam_dir, "images", sub[r]), exist_ok=True)
+        if "depth" in calib:
+            os.makedirs(os.path.join(cam_dir, "images", "depth"), exist_ok=True)
+            if depth_job:
+                depth_params[cam] = depth_job
         with open(os.path.join(cam_dir, "stereo.edex"), "w") as f:
             json.dump([header, body], f, indent=2)
         with open(os.path.join(cam_dir, "calibration.json"), "w") as f:
@@ -907,7 +1092,7 @@ def main():
                 open(os.path.join(cam_dir, "sync.csv"), "w", newline="") as fs:
             w = csv.writer(fs)
             w.writerow(["frame_id", "reference", "rgb_stamp_ns", "infra1_stamp_ns", "infra2_stamp_ns",
-                        "ref_recv_ns", "delta_rgb_ir_ms"])
+                        "ref_recv_ns", "delta_rgb_ir_ms", "depth_stamp_ns", "delta_rgb_depth_ms"])
             for i in range(len(ref_items)):
                 name = f"{i:06d}"
                 cams_meta, row_st = [], {}
@@ -923,9 +1108,18 @@ def main():
                 d = ""
                 if "rgb" in row_st and "ir1" in row_st:
                     d = f"{(row_st['ir1'] - row_st['rgb']) / 1e6:.3f}"
+                meta = {"frame_id": i, "cams": cams_meta}
+                dst, dd = "", ""
+                if i in depth_of_frame:
+                    dit = depth_of_frame[i]
+                    fn = f"images/depth/{name}.png"
+                    meta["depth"] = [{"id": 0, "filename": fn, "timestamp": int(dit[0])}]
+                    jobs.append((dit[2], os.path.join(cam_dir, fn),
+                                 "depth" if depth_src[cam] == "recorded" else "depth_computed", cam))
+                    dst, dd = dit[0], f"{(dit[0] - row_st['rgb']) / 1e6:.3f}"
                 w.writerow([i, ref, row_st.get("rgb", ""), row_st.get("ir1", ""), row_st.get("ir2", ""),
-                            ref_recv, d])
-                fm.write(json.dumps({"frame_id": i, "cams": cams_meta}) + "\n")
+                            ref_recv, d, dst, dd])
+                fm.write(json.dumps(meta) + "\n")
         if imu_rows:
             with open(os.path.join(cam_dir, "IMU.jsonl"), "w") as fj, \
                     open(os.path.join(cam_dir, "imu.csv"), "w", newline="") as fc:
@@ -946,6 +1140,10 @@ def main():
             f"matches: {s['matched']}   IMU: {s['imu']}")
         log(f"        nearest RGB <-> IR offset: {s['raw']}")
         log(f"        offset in matches used (<= {args.tolerance_ms} ms): {s['used']}")
+        if s["depth_source"]:
+            n_rgb = s["frames"] if s["reference"] == "rgb" else s["matched"]
+            log(f"        depth ({s['depth_source']}): {s['depth_frames']} of {n_rgb} RGB frames within "
+                f"{args.depth_tolerance_ms} ms, offset {stats_ms([x * 1e6 for x in s['depth_abs_ms']])}")
     log("Note: cuVSLAM uses the camera 0 timestamp for the whole frame; the documentation\n"
         "      asks for offsets <= 1 ms between 'nearly synchronized' cameras. Choose --tolerance-ms accordingly.")
 
@@ -959,6 +1157,7 @@ def main():
     for key, path, kind, cam_ in jobs:
         by_key.setdefault(key, []).append((path, kind, cam_))
     quality = {}  # (cam, role) -> list of (mean, saturated fraction, black fraction, Laplacian variance)
+    depth_valid = {}  # cam -> fraction of pixels with depth, per written depth image
     mcap_topics = image_topics
     jpg_params = [cv2.IMWRITE_JPEG_QUALITY, args.jpg_quality]
     png_params = [cv2.IMWRITE_PNG_COMPRESSION, args.png_compression]
@@ -969,6 +1168,19 @@ def main():
 
     def work(payload, targets):
         try:
+            if targets[0][1] in ("depth", "depth_computed"):
+                kind_, cam_ = targets[0][1], targets[0][2]
+                dep = depth_to_u16(decode_image(payload))
+                if kind_ == "depth_computed":
+                    pr = depth_params[cam_]
+                    dep = align_depth_to_color(dep, pr["depth_info"], pr["color_info"], pr["T"], pr["scale"],
+                                               pr["model"])
+                with lock:
+                    depth_valid.setdefault(cam_, []).append(float((dep > 0).mean()))
+                for path, _k, _c in targets:
+                    if not cv2.imwrite(path, dep, png_params):
+                        raise IOError(f"write failed: {path}")
+                return
             img = image_to_cv(decode_image(payload))
             gray = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
             q = (float(gray.mean()), float((gray >= 250).mean()), float((gray <= 5).mean()),
@@ -1032,7 +1244,14 @@ def main():
                          "laplacian_var_median": pct(cols[3], 0.5),
                          "laplacian_var_p10": pct(cols[3], 0.1)}
         bag_report["cameras"][c] = {k: v for k, v in s_.items()
-                                    if k not in ("raw", "used", "delta_abs_ms", "raw_abs_ms")}
+                                    if k not in ("raw", "used", "delta_abs_ms", "raw_abs_ms", "depth_abs_ms")}
+        if s_["depth_source"]:
+            dv = depth_valid.get(c, [])
+            bag_report["cameras"][c]["depth"] = {
+                "source": s_["depth_source"], "frames": s_["depth_frames"],
+                "offset_ms": {"median": pct(s_["depth_abs_ms"], 0.5), "p95": pct(s_["depth_abs_ms"], 0.95),
+                              "max": max(s_["depth_abs_ms"]) if s_["depth_abs_ms"] else None},
+                "valid_pixels_median": pct(dv, 0.5), "valid_pixels_p10": pct(dv, 0.1)}
         bag_report["cameras"][c]["delta_ms"] = {"median": pct(s_["delta_abs_ms"], 0.5),
                                                 "p95": pct(s_["delta_abs_ms"], 0.95),
                                                 "max": max(s_["delta_abs_ms"]) if s_["delta_abs_ms"] else None}

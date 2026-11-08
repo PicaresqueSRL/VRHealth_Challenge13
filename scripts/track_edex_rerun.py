@@ -2,7 +2,7 @@
 """
 track_edex_rerun.py - Runs cuVSLAM (PyCuVSLAM) on an EDEX and visualizes the result in Rerun.
 
-Designed for the EDEX files produced by bag_to_cuvslam.py (camera 0 = RGB, 1 = infra1, 2 = infra2,
+Designed for the EDEX files produced by bag2edex.py (camera 0 = RGB, 1 = infra1, 2 = infra2,
 optional IMU), but reads any EDEX with frame_metadata.jsonl.
 
 What it shows in Rerun:
@@ -32,7 +32,7 @@ Examples:
 Output for comparisons (--out-dir): odometry.csv, slam_poses.csv, slam_online.csv, status.csv,
 slam_metrics.csv, loop_closures.csv, run_info.json. The poses are converted from the rig (first
 selected camera, OpenCV axes) to the base frame (--base-frame, default <cam>_link), using
-/tf_static of the source bag (--bag, default: read from ../bag_report.json written by bag_to_cuvslam.py).
+/tf_static of the source bag (--bag, default: read from ../bag_report.json written by bag2edex.py).
 
 Requirements: cuvslam bindings installed, rerun-sdk==0.33.1, numpy, opencv-python.
 """
@@ -236,14 +236,16 @@ def color_from_id(i):
     return [(i * 97) % 200 + 55, (i * 57) % 200 + 55, (i * 23) % 200 + 55]
 
 
-def setup_rerun(args, cam_ids, intr):
-    rr.init("cuVSLAM EDEX", spawn=args.save is None and not args.no_viewer)
+def setup_rerun(args, cam_ids, intr, view):
+    # with no sink (--no-viewer without --save) an enabled recording would buffer everything in memory
+    rr.init("cuVSLAM EDEX", spawn=args.save is None and not args.no_viewer,
+            default_enabled=args.save is not None or not args.no_viewer)
     if args.save:
         rr.save(args.save)
-    rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)  # OpenCV
+    rr.log("world", view.view_coordinates(rr, rr.ViewCoordinates.RIGHT_HAND_Y_DOWN), static=True)
     for k, c in enumerate(cam_ids):
         p = intr[k]
-        T = p["T"]
+        T = view.base_from_camera(p["T"])
         path = f"world/rig/cam{c}"
         rr.log(path, rr.Transform3D(translation=T[:3, 3], mat3x3=T[:3, :3]), static=True)
         rr.log(path, rr.Pinhole(focal_length=[float(x) for x in p["focal"]],
@@ -268,7 +270,7 @@ def make_output_dirs(args, keys):
 # -----------------------------------------------------------------------------
 def base_from_rig(args, first_cam):
     """Return (T_rig_from_base, base_frame, source). The rig is the first selected EDEX camera.
-    Uses calibration.json (written next to stereo.edex by bag_to_cuvslam.py) for the frame names
+    Uses calibration.json (written next to stereo.edex by bag2edex.py) for the frame names
     and /tf_static of the source bag for the transform."""
     edex_dir = os.path.dirname(os.path.abspath(args.edex))
     with open(args.edex) as f:
@@ -295,7 +297,7 @@ def base_from_rig(args, first_cam):
               file=sys.stderr)
         return np.eye(4), "rig", "rig frame (bag not found)"
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from bag_to_cuvslam import Bag, TfTree, decode_tf
+    from bag2edex import Bag, TfTree, decode_tf
     bag = Bag(bag_path)
     tf = TfTree()
     for _t, _r, _k, data in bag.iterate({"/tf_static"}):
@@ -348,6 +350,12 @@ def main():
     ap.add_argument("--async-sba", action="store_true",
                     help="async_sba=True (as in real time; default False: deterministic offline run)")
     ap.add_argument("--no-viewer", action="store_true", help="do not open the Rerun viewer")
+    ap.add_argument("--world", choices=["base", "native"], default="base",
+                    help="3D world frame: 'base' = base frame (--base-frame) at the first pose, z up, the same for "
+                         "every viewer (see view_frames.py); 'native' = cuVSLAM rig at the first frame (OpenCV axes)")
+    ap.add_argument("--compare", nargs="+", default=None, metavar="LABEL=FOLDER",
+                    help="overlay the trajectories saved in these folders (odometry.csv / slam_poses.csv of Isaac ROS "
+                         "or of --out-dir); needs --world base")
     args = ap.parse_args()
     make_output_dirs(args, ('save', 'tum', 'out_dir'))
 
@@ -395,12 +403,22 @@ def main():
     imu = [x for x in imu if x[0] >= frames[0]["ts"]]
     imu_idx = 0
 
-    setup_rerun(args, cam_ids, intr)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from view_frames import ViewFrame, log_compare, matrix, wait_for_viewer
+    T_rb, base, src = (np.eye(4), "rig", "native view") if (args.world == "native" and not args.out_dir) \
+        else base_from_rig(args, cam_ids[0])
+    view = ViewFrame(T_rb if args.world == "base" and base != "rig" else None)
+    if args.world == "base" and view.native:
+        print("WARNING: base frame not available: 3D view in the native cuVSLAM frame", file=sys.stderr)
+    if args.compare and view.native:
+        print("WARNING: --compare needs --world base and a base frame: the compared runs are not shown",
+              file=sys.stderr)
+    setup_rerun(args, cam_ids, intr, view)
+    if not view.native:
+        log_compare(rr, args.compare, frames[0]["ts"], lambda m: print(m, file=sys.stderr))
     writer = None
     if args.out_dir:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from run_output import RunWriter, cuvslam_version
-        T_rb, base, src = base_from_rig(args, cam_ids[0])
         writer = RunWriter(args.out_dir, T_rb, base, len(cam_ids), {
             "script": "track_edex_rerun.py", "input": os.path.abspath(args.edex), "mode": args.mode,
             "cameras": cam_ids, "slam": args.slam, "imu": use_imu, "rectified": args.rectified,
@@ -471,18 +489,20 @@ def main():
             continue
 
         pose = est.world_from_rig.pose
-        traj.append(list(pose.translation))
+        Tb = view.base_pose(matrix(pose.rotation, pose.translation))
+        traj.append(Tb[:3, 3].tolist())
         tum_rows.append([ts / NS] + list(pose.translation) + list(pose.rotation))
         rr.log("world/odom_trajectory", rr.LineStrips3D([traj], colors=[[60, 140, 255]]))
-        rr.log("world/rig", rr.Transform3D(translation=pose.translation, quaternion=pose.rotation))
+        rr.log("world/rig", rr.Transform3D(translation=Tb[:3, 3], mat3x3=Tb[:3, :3]))
 
-        if args.slam and slam_pose is not None:
-            slam_traj.append(list(slam_pose.translation))
+        if args.slam and slam_pose is not None and view.T_new_from_world is not None:
+            Ts = view.T_new_from_world @ matrix(slam_pose.rotation, slam_pose.translation) @ view.T_rb
+            slam_traj.append(Ts[:3, 3].tolist())
             rr.log("world/slam_trajectory", rr.LineStrips3D([slam_traj], colors=[[255, 255, 255]]))
 
         lms = tracker.odometry.get_last_landmarks()
         if lms:
-            rr.log("world/rig/landmarks", rr.Points3D([list(l.coords) for l in lms],
+            rr.log("world/rig/landmarks", rr.Points3D(view.rig_points([list(l.coords) for l in lms]),
                                                         colors=[color_from_id(l.id) for l in lms], radii=0.01))
 
         if n % args.image_every == 0:
@@ -508,7 +528,7 @@ def main():
         if use_imu:
             gvec = tracker.odometry.get_last_gravity()
             if gvec is not None:
-                rr.log("world/rig/gravity", rr.Arrows3D(vectors=[np.asarray(gvec) / 9.81 * 0.5],
+                rr.log("world/rig/gravity", rr.Arrows3D(vectors=[view.rig_vector(gvec) / 9.81 * 0.5],
                                                         colors=[[255, 80, 80]]))
 
         if (n + 1) % 100 == 0:
@@ -518,7 +538,8 @@ def main():
     final = tracker.odometry.get_final_landmarks()
     if final:
         pts = np.array([list(v) for v in final.values()], dtype=np.float32)
-        rr.log("world/final_landmarks", rr.Points3D(pts, colors=[[180, 180, 180]], radii=0.01), static=True)
+        rr.log("world/final_landmarks", rr.Points3D(view.world_points(pts), colors=[[180, 180, 180]], radii=0.01),
+               static=True)
 
     if args.tum:
         with open(args.tum, "w") as f:
@@ -529,6 +550,8 @@ def main():
         print(f"cuVSLAM output saved to {args.out_dir}: {json.dumps(summary)}", file=sys.stderr)
     print(f"Done: {len(tum_rows)} poses, {lost} frames with tracking lost"
           + (f", trajectory in {args.tum}" if args.tum else ""), file=sys.stderr)
+    if args.save is None and not args.no_viewer:
+        wait_for_viewer(rr, lambda m: print(m, file=sys.stderr))
 
 
 if __name__ == "__main__":

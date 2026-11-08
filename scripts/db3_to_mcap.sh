@@ -11,7 +11,7 @@ INCLUDED_TOPICS=('color/image_raw' 'color/camera_info'                          
                  'aligned_depth_to_color/image_raw' 'aligned_depth_to_color/camera_info'  # Depth
                  'imu'                                                                    # IMU
 )
-GLOBAL_TOPICS=('/tf_static')   # camera/IMU extrinsics: required by bag_to_cuvslam.py
+GLOBAL_TOPICS=('/tf_static')   # camera/IMU extrinsics: required by bag2edex.py
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -63,14 +63,14 @@ if [ -f "${source_bag}/metadata.yaml" ]; then
 fi
 
 # --compress-mode storage: MCAP internal compression (zstd chunks), readable by
-# bag_to_cuvslam.py and Rerun. The default 'file' would produce a .mcap.zstd, while 'message'
-# would compress individual messages: bag_to_cuvslam.py can read neither.
+# bag2edex.py and Rerun. The default 'file' would produce a .mcap.zstd, while 'message'
+# would compress individual messages: bag2edex.py can read neither.
 rosbags-convert --src "${src}" --dst "${dest_folder}" --dst-storage mcap \
 	--compress zstd --compress-mode storage --include-topic "${topics[@]}"
 
 # Check: the reduced bag must still be convertible to EDEX (without writing images)
-if [ -f "${HERE}/bag_to_cuvslam.py" ]; then
-	echo "Checking with bag_to_cuvslam.py --dry-run ..."
-	python3 "${HERE}/bag_to_cuvslam.py" "${dest_folder}" -o "$(mktemp -d)" --dry-run --reference auto
+if [ -f "${HERE}/bag2edex.py" ]; then
+	echo "Checking with bag2edex.py --dry-run ..."
+	python3 "${HERE}/bag2edex.py" "${dest_folder}" -o "$(mktemp -d)" --dry-run --reference auto
 fi
 du -sh "${source_bag}" "${dest_folder}"

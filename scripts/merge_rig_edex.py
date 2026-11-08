@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-merge_rig_edex.py - Merges the per-camera EDEX outputs (cam1/, cam2/) produced by bag_to_cuvslam.py
+merge_rig_edex.py - Merges the per-camera EDEX outputs (cam1/, cam2/) produced by bag2edex.py
 into a single "rig" EDEX, using the extrinsic between the two D455s (default: values from the CAD of
 the 20260330_D455_HOLDER mount).
 
-    <capture>/                       output folder of bag_to_cuvslam.py
+    <capture>/                       output folder of bag2edex.py
     ├── cam1/ cam2/                  per-camera EDEX (left unmodified)
     └── rig_<streams>/               single EDEX created by this script
         ├── stereo.edex
@@ -43,7 +43,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bag_to_cuvslam import (Bag, TfTree, decode_tf, edex_camera_transform,  # noqa: E402
+from bag2edex import (Bag, TfTree, decode_tf, edex_camera_transform,  # noqa: E402
                             edex_imu_transform, quat_to_rot)
 
 NS = 1_000_000_000
@@ -142,7 +142,7 @@ def greedy_match(ref, other, tol):
 def main():
     ap = argparse.ArgumentParser(description="Merges the EDEX of two cameras into a single rig",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    ap.add_argument("capture", help="folder containing cam1/ and cam2/ (output of bag_to_cuvslam.py)")
+    ap.add_argument("capture", help="folder containing cam1/ and cam2/ (output of bag2edex.py)")
     ap.add_argument("-o", "--output", default=None, help="output folder (default <capture>/rig_<streams>)")
     ap.add_argument("--cams", nargs=2, default=["cam1", "cam2"],
                     help="the two cameras; the first one is the reference")

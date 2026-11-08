@@ -6,11 +6,17 @@ format as the Isaac ROS runs (`isaac_ros_5/launch/slam_cam2.sh` + `extract_paths
 
 | Script | Purpose |
 |---|---|
-| `bag_to_cuvslam.py` | Converts a ROS 2 bag (`.db3` / `.mcap`) to one EDEX per camera (RGB, infra1, infra2, IMU) |
-| `convert_all.py` | Runs `bag_to_cuvslam.py` on every capture of a folder, preserving the folder structure |
+| `bag2edex.py` | Converts a ROS 2 bag (`.db3` / `.mcap`) to one EDEX per camera (RGB, infra1, infra2, IMU); with `--depth` also the depth aligned to the RGB |
+| `check_depth_sync.py` | Measures the stamps of native and aligned depth against RGB and IR in every capture |
+| `check_depth_alignment.py` | Compares the aligned depth computed by `bag2edex.py` with the one recorded by the realsense node |
+| `bag2edex_modes.py` | Converts a capture into one EDEX per cuVSLAM input configuration (RGB-D, stereo + IMU, Multicamera, Multisensor), with shared images |
+| `convert_all.py` | Runs `bag2edex.py` (or `--converter <script>`) on every capture of a folder, preserving the folder structure |
 | `merge_rig_edex.py` | Merges the cam1 and cam2 EDEX files into a single rig EDEX (extrinsic from the CAD of the mount) |
 | `track_edex_rerun.py` | Runs cuVSLAM on an EDEX, with Rerun visualization |
 | `track_bag_rerun.py` | Runs cuVSLAM directly on a ROS 2 bag, with Rerun visualization |
+| `track_edex_modes.py` | Runs cuVSLAM without viewer on an EDEX of `bag2edex_modes.py`, in any odometry mode (also RGBD and Multisensor) |
+| `bag_output_rerun.py` | Shows in Rerun a cuVSLAM run done with Isaac ROS, from the bag of its output topics (optionally with the images of the input bag) |
+| `view_frames.py` | Module used by the three Rerun viewers: common 3D frame (base frame at the first pose, `--world`) and overlay of saved runs (`--compare`) |
 | `run_output.py` | Module used by the two tracking scripts to save the cuVSLAM output (`--out-dir`) |
 | `compare_runs.py` | Compares saved runs (Isaac ROS and PyCuVSLAM) with each other and with the ground truth |
 | `db3_to_mcap.sh` | Reduces a bag to the topics needed by cuVSLAM and converts it to compressed MCAP |
@@ -58,7 +64,7 @@ E=~/dotlumen/Captures/edex_ir/9_Loop_closure/loop_closure
 R=~/dotlumen/VRHealth_Challenge13/results/pycuvslam
 
 # 1. EDEX with the IR pair as reference (all IR pairs kept): cameras 0 = infra1, 1 = infra2, 2 = rgb
-python3 bag_to_cuvslam.py $B -o $E --reference ir --cameras cam2
+python3 bag2edex.py $B -o $E --reference ir --cameras cam2
 
 # 2. cuVSLAM on the EDEX
 python3 track_edex_rerun.py $E/cam2/stereo.edex --mode inertial --cameras 0 1 --rectified --slam \

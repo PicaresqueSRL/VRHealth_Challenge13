@@ -3,7 +3,7 @@
 track_bag_rerun.py - Runs cuVSLAM (PyCuVSLAM) directly on a ROS 2 bag (.mcap or .db3)
 and visualizes the result in Rerun, without going through an EDEX and without writing images to disk.
 
-Does in memory what bag_to_cuvslam.py + merge_rig_edex.py + track_edex_rerun.py do:
+Does in memory what bag2edex.py + merge_rig_edex.py + track_edex_rerun.py do:
   1. reads /tf_static, camera_info, image timestamps and IMU (pass 1);
   2. builds the rig from the streams chosen with --streams (also cam1 + cam2, using the mount
      extrinsic) and synchronizes the frames on the first stream;
@@ -38,7 +38,7 @@ slam_metrics.csv, loop_closures.csv, run_info.json. The poses are those of the b
 (--base-frame, default <cam>_link of the reference stream), relative to the first pose.
 
 Requirements: cuvslam bindings, rerun-sdk==0.33.1, numpy, opencv-python, zstandard/lz4 for compressed MCAP.
-Uses functions from bag_to_cuvslam.py, merge_rig_edex.py and track_edex_rerun.py (same folder).
+Uses functions from bag2edex.py, merge_rig_edex.py and track_edex_rerun.py (same folder).
 """
 
 import argparse
@@ -52,7 +52,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bag_to_cuvslam import (Bag, TfTree, decode_camera_info, decode_image, decode_imu,  # noqa: E402
+from bag2edex import (Bag, TfTree, decode_camera_info, decode_image, decode_imu,  # noqa: E402
                             decode_tf, dedupe, greedy_match, header_stamp, image_to_cv,
                             quat_to_rot, ros_d_to_brown5k)
 from merge_rig_edex import CAD_EXTRINSIC  # noqa: E402
@@ -83,6 +83,10 @@ def parse_args():
                     metavar=("X", "Y", "Z", "QX", "QY", "QZ", "QW"),
                     help="T_<cam1>_link_from_<cam2>_link (used only if /tf_static does not connect the cameras)")
     ap.add_argument("--link-frame", default="{cam}_link", help="base frame of each camera in /tf_static")
+    ap.add_argument("--require-all-streams", action=argparse.BooleanOptionalAction, default=None,
+                    help="drop the frames where some stream has no image within --tolerance-ms (as the EDEX created "
+                         "with bag2edex.py and the Isaac ROS node, min_num_images). Default: on in inertial "
+                         "mode, off otherwise (partial frames are passed to cuVSLAM)")
     ap.add_argument("--tolerance-ms", type=float, default=1.0,
                     help="maximum offset between the reference and the other streams (cuVSLAM requires <= 1 ms)")
     ap.add_argument("--stale-threshold", type=float, default=0.5,
@@ -108,7 +112,19 @@ def parse_args():
     ap.add_argument("--async-sba", action="store_true",
                     help="async_sba=True (as in real time; default False: deterministic offline run)")
     ap.add_argument("--no-viewer", action="store_true", help="do not open the Rerun viewer")
+    ap.add_argument("--world", choices=["base", "native"], default="base",
+                    help="3D world frame: 'base' = base frame (--base-frame) at the first pose, z up, the same for "
+                         "every viewer (see view_frames.py); 'native' = cuVSLAM rig at the first frame (OpenCV axes)")
+    ap.add_argument("--compare", nargs="+", default=None, metavar="LABEL=FOLDER",
+                    help="overlay the trajectories saved in these folders (odometry.csv / slam_poses.csv of Isaac ROS "
+                         "or of --out-dir); needs --world base")
     return ap.parse_args()
+
+
+def to4(pose):
+    """cuvslam.Pose -> 4x4 matrix."""
+    from view_frames import matrix
+    return matrix(pose.rotation, pose.translation)
 
 
 def make_output_dirs(args, keys):
@@ -348,6 +364,13 @@ def main():
         for i, j in greedy_match(ref_ts, [x[0] for x in lst], tol).items():
             frames[i]["keys"][si] = lst[j][2]
             frames[i]["stamps"][si] = lst[j][0]
+    n_candidates = len(frames)
+    require_all = args.require_all_streams if args.require_all_streams is not None else args.mode == "inertial"
+    if require_all and len(streams) > 1:
+        frames = [f for f in frames if len(f["keys"]) == len(streams)]
+        if len(frames) < n_candidates:
+            log(f"Dropped {n_candidates - len(frames)} of {n_candidates} frames without all the streams "
+                f"(--no-require-all-streams keeps them as partial frames)")
     if args.max_frames:
         frames = frames[:args.max_frames]
     if not frames:
@@ -383,13 +406,32 @@ def main():
     else:
         tracker = cuvslam.Tracker(rig, cuvslam.Tracker.Mode.OdometryOnlyOffline, odom_cfg)
 
+    # --- base frame (saved output and 3D view) ----------------------------------------
+    from view_frames import ViewFrame, log_compare, wait_for_viewer
+    if args.base_frame == "rig":
+        T_rb, base = np.eye(4), "rig"
+    else:
+        base = args.base_frame or args.link_frame.format(cam=streams[0]["cam"])
+        T_rb = tf.lookup(ref_frame, base)
+        if T_rb is None:
+            if args.out_dir:
+                sys.exit(f"Transform {ref_frame} <- {base} not found in /tf_static (use --base-frame)")
+            log(f"WARNING: {ref_frame} <- {base} not in /tf_static: 3D view in the native cuVSLAM frame")
+            T_rb, base = np.eye(4), "rig"
+    view = ViewFrame(T_rb if args.world == "base" and base != "rig" else None)
+    if args.compare and view.native:
+        log("WARNING: --compare needs --world base and a base frame: the compared runs are not shown")
+
     # --- Rerun ---------------------------------------------------------------------
     ent = {si: f"world/rig/{s['cam']}_{s['role']}" for si, s in enumerate(streams)}
-    rr.init("cuVSLAM bag", spawn=args.save is None and not args.no_viewer)
+    # with no sink (--no-viewer without --save) an enabled recording would buffer everything in memory
+    rr.init("cuVSLAM bag", spawn=args.save is None and not args.no_viewer,
+            default_enabled=args.save is not None or not args.no_viewer)
     if args.save:
         rr.save(args.save)
-    rr.send_blueprint(make_blueprint(streams, ent, use_imu))
-    rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_DOWN, static=True)  # OpenCV
+    if rr.is_enabled():
+        rr.send_blueprint(make_blueprint(streams, ent, use_imu))
+    rr.log("world", view.view_coordinates(rr, rr.ViewCoordinates.RIGHT_HAND_Y_DOWN), static=True)
     if use_imu:
         rr.log("imu/gyro", rr.SeriesLines(names=["gyro x", "gyro y", "gyro z"],
                                           colors=[[80, 120, 255], [60, 200, 200], [120, 220, 120]]), static=True)
@@ -398,7 +440,7 @@ def main():
     for si, s in enumerate(streams):
         rr.log(f"stats/tracked/{s['cam']}_{s['role']}", rr.SeriesLines(names=[s["name"]]), static=True)
     for si, s in enumerate(streams):
-        T = s["T"]
+        T = view.base_from_camera(s["T"])
         rr.log(ent[si], rr.Transform3D(translation=T[:3, 3], mat3x3=T[:3, :3]), static=True)
         rr.log(ent[si], rr.Pinhole(focal_length=[float(x) for x in s["focal"]],
                                    principal_point=[float(x) for x in s["principal"]],
@@ -410,23 +452,19 @@ def main():
     writer = None
     if args.out_dir:
         from run_output import RunWriter, cuvslam_version
-        if args.base_frame == "rig":
-            T_rb, base = np.eye(4), "rig"
-        else:
-            base = args.base_frame or args.link_frame.format(cam=streams[0]["cam"])
-            T_rb = tf.lookup(ref_frame, base)
-            if T_rb is None:
-                sys.exit(f"Transform {ref_frame} <- {base} not found in /tf_static (use --base-frame)")
         writer = RunWriter(args.out_dir, T_rb, base, len(streams), {
             "script": "track_bag_rerun.py", "input": os.path.abspath(os.path.expanduser(args.bag)),
             "mode": args.mode, "streams": names, "slam": args.slam, "imu": use_imu,
             "rectified": args.rectified, "async_sba": args.async_sba, "tolerance_ms": args.tolerance_ms,
             "start": args.start, "end": args.end, "max_frames": args.max_frames,
             "base_frame_source": "/tf_static of the bag", "cuvslam_version": cuvslam_version(cuvslam),
+            "require_all_streams": bool(require_all), "frames_before_stream_check": n_candidates,
             "frames_in_input": len(frames),
             "frames_with_all_streams": sum(len(f["keys"]) == len(streams) for f in frames)})
     log("Pass 2/2: tracking ...")
     t0 = frames[0]["ts"]
+    if not view.native:
+        log_compare(rr, args.compare, t0, log)
     imu = [x for x in imu if x[0] >= t0]
     imu_idx = 0
     traj, slam_traj, tum_rows, slam_rows = [], [], [], []
@@ -477,18 +515,20 @@ def main():
             continue
 
         pose = est.world_from_rig.pose
-        traj.append(list(pose.translation))
+        Tb = view.base_pose(to4(pose))
+        traj.append(Tb[:3, 3].tolist())
         tum_rows.append([ts / NS] + list(pose.translation) + list(pose.rotation))
         rr.log("world/odom_trajectory", rr.LineStrips3D([traj], colors=[[60, 140, 255]]))
-        rr.log("world/rig", rr.Transform3D(translation=pose.translation, quaternion=pose.rotation))
-        if args.slam and slam_pose is not None:
-            slam_traj.append(list(slam_pose.translation))
+        rr.log("world/rig", rr.Transform3D(translation=Tb[:3, 3], mat3x3=Tb[:3, :3]))
+        if args.slam and slam_pose is not None and view.T_new_from_world is not None:
+            Ts = view.T_new_from_world @ to4(slam_pose) @ view.T_rb
+            slam_traj.append(Ts[:3, 3].tolist())
             slam_rows.append([ts / NS] + list(slam_pose.translation) + list(slam_pose.rotation))
             rr.log("world/slam_trajectory", rr.LineStrips3D([slam_traj], colors=[[255, 255, 255]]))
 
         lms = tracker.odometry.get_last_landmarks()
         if lms:
-            rr.log("world/rig/landmarks", rr.Points3D([list(l.coords) for l in lms],
+            rr.log("world/rig/landmarks", rr.Points3D(view.rig_points([list(l.coords) for l in lms]),
                                                         colors=[color_from_id(l.id) for l in lms], radii=0.01))
         if n % args.image_every == 0:
             for si in range(len(streams)):
@@ -505,7 +545,7 @@ def main():
         if use_imu:
             g = tracker.odometry.get_last_gravity()
             if g is not None:
-                rr.log("world/rig/gravity", rr.Arrows3D(vectors=[np.asarray(g) / 9.81 * 0.5],
+                rr.log("world/rig/gravity", rr.Arrows3D(vectors=[view.rig_vector(g) / 9.81 * 0.5],
                                                         colors=[[255, 80, 80]]))
         if (n + 1) % 100 == 0:
             log(f"  {n + 1}/{len(frames)} frames ({(n + 1) / (time.time() - t_wall):.1f} fps), lost {lost}")
@@ -513,7 +553,8 @@ def main():
     final = tracker.odometry.get_final_landmarks()
     if final:
         pts = np.array([list(v) for v in final.values()], dtype=np.float32)
-        rr.log("world/final_landmarks", rr.Points3D(pts, colors=[[180, 180, 180]], radii=0.01), static=True)
+        rr.log("world/final_landmarks", rr.Points3D(view.world_points(pts), colors=[[180, 180, 180]], radii=0.01),
+               static=True)
 
     for path, rows in ((args.tum, tum_rows), (args.slam_tum, slam_rows)):
         if path:
@@ -527,6 +568,8 @@ def main():
         drift = np.linalg.norm(np.array(traj[-1]) - np.array(traj[0]))
         log(f"Distance between first and last pose (odometry): {drift:.3f} m")
     log(f"Done: {len(tum_rows)} poses, {lost} frames with tracking lost")
+    if args.save is None and not args.no_viewer:
+        wait_for_viewer(rr, log)
 
 
 if __name__ == "__main__":
