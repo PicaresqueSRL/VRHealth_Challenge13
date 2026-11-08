@@ -16,8 +16,8 @@ For each capture it runs bag2edex.py with --reference auto (or the script given 
 and finally <output>/conversion_summary.json.
 
 Usage:
-    python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex
-    python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex --list   # list only
+    python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex_old/edex
+    python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex_old/edex --list   # list only
     python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex --converter bag2edex_modes.py
 """
 
@@ -62,7 +62,7 @@ def find_captures(root, out_root):
 
 def main():
     ap = argparse.ArgumentParser(description="Convert every capture in a folder to EDEX")
-    ap.add_argument("root", help="captures folder (e.g. ~/dotlumen/Captures)")
+    ap.add_argument("root", help="captures folder (e.g. ~/dotlumen/Captures/original)")
     ap.add_argument("-o", "--output", required=True, help="output folder (e.g. ~/dotlumen/Captures/edex)")
     ap.add_argument("--list", action="store_true", help="list the captures found and exit")
     ap.add_argument("--skip-existing", action="store_true",

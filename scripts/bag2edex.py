@@ -46,8 +46,8 @@ with the same index as the RGB frame (raw depth units, millimeters for RealSense
     uses depth_id as the index of the depth stream (0), while the cuVSLAM Python tools read it as a camera id.
 
 Example:
-    python3 bag2edex.py ~/dotlumen/Captures/3_Staircases/staircases_102 \\
-        --output ~/dotlumen/Captures/3_Staircases/staircases_102/edex
+    python3 bag2edex.py ~/dotlumen/Captures/original/3_Staircases/staircases_102 \\
+        --output ~/dotlumen/Captures/original/3_Staircases/staircases_102/edex
 
 See `--help` for all options.
 """

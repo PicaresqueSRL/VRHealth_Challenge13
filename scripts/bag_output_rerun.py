@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-bag_output_rerun.py - Shows in Rerun a cuVSLAM run already done with Isaac ROS (isaac_ros_visual_slam),
-from the bag that recorded its output topics, without ROS.
+bag_output_rerun.py - Shows in Rerun a cuVSLAM run already done, without ROS and without running cuVSLAM: from the
+bag that recorded the output topics of Isaac ROS (isaac_ros_visual_slam), or from a folder with its saved trajectories.
 
-Input:
+Input, one of:
   * the output bag (e.g. isaac_ros_5/launch/slam_cam2.sh -> <run>/bag): /visual_slam/tracking/odometry,
     vo_path, slam_path, /visual_slam/status, /visual_slam/vis/* and /tf, /tf_static;
-  * optionally the input bag played during the run (--input-bag), for the camera images and the
-    camera calibration (camera_info, /tf_static).
+  * a folder with the CSV files of a saved run, of Isaac ROS (extract_paths.py) or of PyCuVSLAM (--out-dir of
+    track_edex_rerun.py and track_bag_rerun.py): odometry.csv, slam_poses.csv and, if present, status.csv and run_info.json;
+and in both cases:
+  * optionally the input bag of the run (--input-bag), for the camera images and the camera calibration
+    (camera_info, /tf_static).
 
 What is shown (same layout and entity names as track_bag_rerun.py):
   world/odom_trajectory      odometry trajectory (line), from nav_msgs/Odometry
@@ -21,6 +24,9 @@ What is shown (same layout and entity names as track_bag_rerun.py):
   stats/timing/<field>       execution times of /visual_slam/status
   stats/points/<name>        number of points of each point cloud topic
 
+From a CSV folder, world/slam_path is the final trajectory, starting at the origin as in --compare, and world/vis/* is
+not available.
+
 Every message is placed on the "time" timeline by its header stamp, relative to the first odometry
 message, so the images of the input bag line up with the output of cuVSLAM.
 
@@ -30,14 +36,20 @@ including isaac_ros_visual_slam_interfaces); for .db3 bags built-in definitions 
 Examples:
     R=~/workspaces/isaac_ros-dev/slam_runs/cam2_stereo_imu/loop_closure
     python3 bag_output_rerun.py $R/bag
-    python3 bag_output_rerun.py $R/bag --input-bag ~/dotlumen/Captures/9_Loop_closure/loop_closure \\
+    python3 bag_output_rerun.py $R/bag --input-bag ~/dotlumen/Captures/original/9_Loop_closure/loop_closure \\
         --streams cam2/ir1 cam2/ir2 --save $R/isaac_ros.rrd
+
+    # saved trajectories (Isaac ROS CSV or --out-dir of the tracking scripts)
+    python3 bag_output_rerun.py ~/dotlumen/VRHealth_Challenge13/results/slam_csv/cam2_stereo_imu/loop_closure
 
 Requirements: numpy, opencv-python-headless, rerun-sdk==0.33.1 (zstandard/lz4 for compressed MCAP).
 Uses the bag readers of bag2edex.py (same folder).
 """
 
 import argparse
+import csv
+import glob
+import json
 import os
 import re
 import struct
@@ -49,6 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bag2edex import (Bag, McapFile, TfTree, decode_camera_info, decode_image, decode_tf,  # noqa: E402
                             image_to_cv, quat_to_rot)
+from view_frames import anchored_positions, log_compare, matrix, read_pose_csv, wait_for_viewer  # noqa: E402
 
 NS = 1_000_000_000
 IMAGE_TOPICS = {"rgb": ("/{cam}/color/image_raw", "/{cam}/color/camera_info"),
@@ -409,8 +422,9 @@ def make_blueprint(cameras):
 def parse_args():
     ap = argparse.ArgumentParser(description="Show in Rerun a cuVSLAM run recorded from Isaac ROS",
                                  formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    ap.add_argument("output_bag", help="bag with the cuVSLAM output topics (folder, .mcap or .db3)")
-    ap.add_argument("--input-bag", default=None, help="bag played during the run, for images and calibration")
+    ap.add_argument("output_bag", help="bag with the cuVSLAM output topics (folder, .mcap or .db3), or folder with the "
+                                       "CSV files of a saved run (odometry.csv, slam_poses.csv)")
+    ap.add_argument("--input-bag", default=None, help="input bag of the run, for images and calibration")
     ap.add_argument("--streams", nargs="+", default=None,
                     help="images to show, <cam>/<rgb|ir1|ir2> (default with --input-bag: <cam>/ir1, where "
                          "<cam> is the prefix of the odometry child frame, e.g. cam2_link -> cam2)")
@@ -430,38 +444,9 @@ def parse_args():
     return ap.parse_args()
 
 
-def main():
-    args = parse_args()
-    import rerun as rr
-
-    out_bag = Bag(args.output_bag)
-    types = out_bag.topic_types()
-    defs = MsgDefs()
-    for f in out_bag.files:
-        if isinstance(f, McapFile):
-            for name, text in read_mcap_schemas(f.path).items():
-                defs.add_text(name, text)
-    log(f"Output bag: {', '.join(os.path.basename(f.path) for f in out_bag.files)}")
-    for t, ty in sorted(types.items()):
-        known = "" if short_type(ty) in defs.defs else "   (no definition: skipped)"
-        log(f"  {t}  [{ty}]{known}")
-    if args.odometry_topic not in types:
-        sys.exit(f"{args.odometry_topic} not in the output bag (use --odometry-topic)")
-
-    # first odometry message: time origin, world frame and base frame
-    t0 = world = base = None
-    for _t, _r, _k, data in out_bag.iterate({args.odometry_topic}):
-        m = CdrDecoder(defs, data).value(short_type(types[args.odometry_topic]))
-        t0, world, base = stamp_ns(m["header"]), m["header"]["frame_id"].lstrip("/"), m["child_frame_id"].lstrip("/")
-        pose0 = pose_matrix(m["pose"]["pose"])
-        break
-    if t0 is None:
-        sys.exit(f"No messages on {args.odometry_topic}")
-    world = args.world_frame or world
-    log(f"World frame: {world}, rig (odometry child frame): {base}")
-
-    # cameras of the input bag
-    cameras = []
+def load_cameras(args, base):
+    """Cameras of the input bag to show on the rig (base = frame of world/rig). Returns (bag, cameras)."""
+    cameras, in_bag = [], None
     if args.input_bag:
         in_bag = Bag(args.input_bag)
         in_types = in_bag.topic_types()
@@ -493,16 +478,173 @@ def main():
                 shift[0, 3] = -info["p"][3] / info["p"][0]  # infra2 shares the infra1 frame id: baseline from P
                 T = T @ shift
             cameras.append(dict(name=name, topic=topic, info=info, T=T, ent=f"world/rig/{cam}_{role}"))
+    return in_bag, cameras
 
-    rr.init("cuVSLAM Isaac ROS", spawn=args.save is None)
+
+def open_rerun(rr, args, name, cameras):
+    rr.init(name, spawn=args.save is None)
     if args.save:
         path = os.path.abspath(os.path.expanduser(args.save))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         rr.save(path)
     rr.send_blueprint(make_blueprint([(c["name"], c["ent"]) for c in cameras]))
     rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)  # ROS frames: x forward, z up
+
+
+def log_cameras(rr, cameras):
+    for c in cameras:
+        k, info = c["info"]["k"], c["info"]
+        rr.log(c["ent"], rr.Transform3D(translation=c["T"][:3, 3], mat3x3=c["T"][:3, :3]), static=True)
+        rr.log(c["ent"], rr.Pinhole(focal_length=[k[0], k[4]], principal_point=[k[2], k[5]],
+                                    width=int(info["width"]), height=int(info["height"]),
+                                    image_plane_distance=0.3), static=True)
+
+
+def log_images(rr, args, in_bag, cameras, t0, t_last, set_time):
+    """Logs the images of the input bag between t0 and t_last (ns), plus 1 s at each end."""
+    if not cameras:
+        return
+    t_end = t_last + NS
+    by_topic = {c["topic"]: c for c in cameras}
+    n_img = {t: 0 for t in by_topic}
+    for topic, recv, _k, data in in_bag.iterate(set(by_topic)):
+        n_img[topic] += 1
+        if (n_img[topic] - 1) % args.image_every:
+            continue
+        img = decode_image(data)
+        ts = img["stamp"] if img.get("stamp") else recv
+        if ts < t0 - NS or ts > t_end:
+            continue
+        cv = image_to_cv(img)
+        if cv.ndim == 3:
+            cv = cv[:, :, ::-1]  # BGR -> RGB
+        set_time(ts)
+        rr.log(f"{by_topic[topic]['ent']}/image", rr.Image(np.ascontiguousarray(cv)).compress(jpeg_quality=75))
+    log("Images logged: " + ", ".join(f"{t} {n}" for t, n in n_img.items()))
+
+
+# =============================================================================
+# Saved trajectories (CSV)
+# =============================================================================
+def is_saved_run(path):
+    """True for a folder with the CSV trajectories of a saved run and no bag files."""
+    path = os.path.expanduser(path)
+    return (os.path.isdir(path) and not glob.glob(os.path.join(path, "*.mcap")) + glob.glob(os.path.join(path, "*.db3"))
+            and any(os.path.exists(os.path.join(path, n)) for n in ("odometry.csv", "slam_poses.csv")))
+
+
+def read_trajectory(folder, name):
+    path = os.path.join(folder, name)
+    return read_pose_csv(path) if os.path.exists(path) else np.zeros((0, 8))
+
+
+def saved_run_base_frame(args, folder):
+    """Frame of the saved poses, needed only to place the cameras of --input-bag on the rig."""
+    base = None
+    info = os.path.join(folder, "run_info.json")
+    if os.path.exists(info):
+        with open(info) as f:
+            base = json.load(f).get("base_frame")
+    if base is None and args.streams:
+        base = args.streams[0].split("/")[0] + "_link"
+    if args.input_bag and not args.streams and base in (None, "rig"):
+        sys.exit("--input-bag on a saved run without run_info.json: use --streams to choose the images")
+    return base or "rig"
+
+
+def log_saved_status(rr, folder, set_time):
+    """Logs status.csv (Isaac ROS or --out-dir) in the same plots as the output bag. Returns its frames not tracked."""
+    path = os.path.join(folder, "status.csv")
+    if not os.path.exists(path):
+        return 0
+    lost = 0
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            set_time(int(round(float(row["timestamp"]) * NS)))
+            for k, v in row.items():
+                if k == "timestamp" or v in (None, ""):
+                    continue
+                group = "status" if k == "vo_state" else "timing" if any(w in k for w in TIMING_WORDS) else "points"
+                rr.log(f"stats/{group}/{k}", rr.Scalars(float(v)))
+            lost += int(float(row["vo_state"])) not in (1, 3)
+    return lost
+
+
+def show_saved_run(args, rr):
+    """Logs a run from its saved trajectories. The same 3D frames as show_output_bag: with --world base the odometry
+    starts at the origin; the SLAM trajectory is the final one and starts at the origin as well."""
+    folder = os.path.expanduser(args.output_bag)
+    odom, slam = read_trajectory(folder, "odometry.csv"), read_trajectory(folder, "slam_poses.csv")
+    if not len(odom) and not len(slam):
+        sys.exit(f"odometry.csv and slam_poses.csv in {folder} have no poses")
+    log(f"Saved run: {folder} ({len(odom)} odometry poses, {len(slam)} SLAM poses)")
+    if args.world_frame:
+        log("NOTE: --world-frame is ignored for a saved run")
+    first = odom if len(odom) else slam
+    t0 = int(round(first[0, 0] * NS))
+    t_last = int(round(max(a[-1, 0] for a in (odom, slam) if len(a)) * NS))
+
+    def set_time(ns):
+        rr.set_time("time", duration=(ns - t0) / NS)
+
+    in_bag, cameras = load_cameras(args, saved_run_base_frame(args, folder))
+    open_rerun(rr, args, "cuVSLAM saved run", cameras)
+    if args.compare:
+        if args.world == "base":
+            log_compare(rr, args.compare, t0, log)
+        else:
+            log("WARNING: --compare needs --world base: the compared runs are not shown")
+    log_cameras(rr, cameras)
+
+    T_view = np.linalg.inv(matrix(first[0, 4:8], first[0, 1:4])) if args.world == "base" else np.eye(4)
+    traj = []
+    for r in odom:
+        T = T_view @ matrix(r[4:8], r[1:4])
+        traj.append(T[:3, 3].tolist())
+        set_time(int(round(r[0] * NS)))
+        rr.log("world/rig", rr.Transform3D(translation=T[:3, 3], mat3x3=T[:3, :3]))
+        rr.log("world/odom_trajectory", rr.LineStrips3D([traj], colors=[[42, 120, 214]], radii=0.01))
+    if len(slam):
+        pts = anchored_positions(slam, None) if args.world == "base" else slam[:, 1:4]
+        rr.log("world/slam_path", rr.LineStrips3D([pts], colors=[[235, 104, 52]], radii=0.01), static=True)
+    lost = log_saved_status(rr, folder, set_time)
+    if lost:
+        log(f"Frames with vo_state not 'success': {lost}")
+    log_images(rr, args, in_bag, cameras, t0, t_last, set_time)
+
+
+def show_output_bag(args, rr):
+    """Logs a run from the bag of its output topics."""
+    out_bag = Bag(args.output_bag)
+    types = out_bag.topic_types()
+    defs = MsgDefs()
+    for f in out_bag.files:
+        if isinstance(f, McapFile):
+            for name, text in read_mcap_schemas(f.path).items():
+                defs.add_text(name, text)
+    log(f"Output bag: {', '.join(os.path.basename(f.path) for f in out_bag.files)}")
+    for t, ty in sorted(types.items()):
+        known = "" if short_type(ty) in defs.defs else "   (no definition: skipped)"
+        log(f"  {t}  [{ty}]{known}")
+    if args.odometry_topic not in types:
+        sys.exit(f"{args.odometry_topic} not in the output bag (use --odometry-topic)")
+
+    # first odometry message: time origin, world frame and base frame
+    t0 = world = base = None
+    for _t, _r, _k, data in out_bag.iterate({args.odometry_topic}):
+        m = CdrDecoder(defs, data).value(short_type(types[args.odometry_topic]))
+        t0, world, base = stamp_ns(m["header"]), m["header"]["frame_id"].lstrip("/"), m["child_frame_id"].lstrip("/")
+        pose0 = pose_matrix(m["pose"]["pose"])
+        break
+    if t0 is None:
+        sys.exit(f"No messages on {args.odometry_topic}")
+    world = args.world_frame or world
+    log(f"World frame: {world}, rig (odometry child frame): {base}")
+
+    in_bag, cameras = load_cameras(args, base)
+
+    open_rerun(rr, args, "cuVSLAM Isaac ROS", cameras)
     # viewer world: odometry child frame at the first pose (--world base) or the Isaac ROS world frame
-    from view_frames import log_compare, wait_for_viewer
     T_view = np.linalg.inv(pose0) if args.world == "base" and not args.world_frame else np.eye(4)
     if args.world == "base" and args.world_frame:
         log("NOTE: --world-frame given: 3D view in that frame (--world base ignored)")
@@ -511,12 +653,7 @@ def main():
             log_compare(rr, args.compare, t0, log)
         else:
             log("WARNING: --compare needs --world base: the compared runs are not shown")
-    for c in cameras:
-        k, info = c["info"]["k"], c["info"]
-        rr.log(c["ent"], rr.Transform3D(translation=c["T"][:3, 3], mat3x3=c["T"][:3, :3]), static=True)
-        rr.log(c["ent"], rr.Pinhole(focal_length=[k[0], k[4]], principal_point=[k[2], k[5]],
-                                    width=int(info["width"]), height=int(info["height"]),
-                                    image_plane_distance=0.3), static=True)
+    log_cameras(rr, cameras)
 
     def set_time(ns):
         rr.set_time("time", duration=(ns - t0) / NS)
@@ -597,26 +734,17 @@ def main():
     if lost:
         log(f"Frames with vo_state not 'success': {len(lost)}")
 
-    # --- images of the input bag --------------------------------------------------------
-    if cameras:
-        t_end = t_last + NS  # images outside the run (plus 1 s) are skipped
-        by_topic = {c["topic"]: c for c in cameras}
-        n_img = {t: 0 for t in by_topic}
-        for topic, recv, _k, data in in_bag.iterate(set(by_topic)):
-            n_img[topic] += 1
-            if (n_img[topic] - 1) % args.image_every:
-                continue
-            img = decode_image(data)
-            ts = img["stamp"] if img.get("stamp") else recv
-            if ts < t0 - NS or ts > t_end:
-                continue
-            cv = image_to_cv(img)
-            if cv.ndim == 3:
-                cv = cv[:, :, ::-1]  # BGR -> RGB
-            set_time(ts)
-            rr.log(f"{by_topic[topic]['ent']}/image", rr.Image(np.ascontiguousarray(cv)).compress(jpeg_quality=75))
-        log("Images logged: " + ", ".join(f"{t} {n}" for t, n in n_img.items()))
+    log_images(rr, args, in_bag, cameras, t0, t_last, set_time)
 
+
+def main():
+    args = parse_args()
+    import rerun as rr
+
+    if is_saved_run(args.output_bag):
+        show_saved_run(args, rr)
+    else:
+        show_output_bag(args, rr)
     if args.save:
         log(f"Saved {args.save}")
     else:

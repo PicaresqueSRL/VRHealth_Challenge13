@@ -15,7 +15,7 @@ format as the Isaac ROS runs (`isaac_ros_5/launch/slam_cam2.sh` + `extract_paths
 | `track_edex_rerun.py` | Runs cuVSLAM on an EDEX, with Rerun visualization |
 | `track_bag_rerun.py` | Runs cuVSLAM directly on a ROS 2 bag, with Rerun visualization |
 | `track_edex_modes.py` | Runs cuVSLAM without viewer on an EDEX of `bag2edex_modes.py`, in any odometry mode (also RGBD and Multisensor) |
-| `bag_output_rerun.py` | Shows in Rerun a cuVSLAM run done with Isaac ROS, from the bag of its output topics (optionally with the images of the input bag) |
+| `bag_output_rerun.py` | Shows in Rerun a cuVSLAM run already done, from the bag of its output topics or from a folder with its saved trajectories (optionally with the images of the input bag) |
 | `view_frames.py` | Module used by the three Rerun viewers: common 3D frame (base frame at the first pose, `--world`) and overlay of saved runs (`--compare`) |
 | `run_output.py` | Module used by the two tracking scripts to save the cuVSLAM output (`--out-dir`) |
 | `compare_runs.py` | Compares saved runs (Isaac ROS and PyCuVSLAM) with each other and with the ground truth |
@@ -59,15 +59,15 @@ The same input for both runs: all IR pairs of cam2, IMU of cam2, rectified image
 in `cuvslam_stereo_imu_cam2.launch.py`).
 
 ```bash
-B=~/dotlumen/Captures/9_Loop_closure/loop_closure        # the same bag played by slam_cam2.sh
-E=~/dotlumen/Captures/edex_ir/9_Loop_closure/loop_closure
+B=~/dotlumen/Captures/original/9_Loop_closure/loop_closure        # the same bag played by slam_cam2.sh
+E=~/dotlumen/Captures/edex/9_Loop_closure/loop_closure
 R=~/dotlumen/VRHealth_Challenge13/results/pycuvslam
 
-# 1. EDEX with the IR pair as reference (all IR pairs kept): cameras 0 = infra1, 1 = infra2, 2 = rgb
-python3 bag2edex.py $B -o $E --reference ir --cameras cam2
+# 1. One EDEX per input configuration; stereo_imu_cam2 has cameras 0 = infra1, 1 = infra2
+python3 bag2edex_modes.py $B -o $E
 
 # 2. cuVSLAM on the EDEX
-python3 track_edex_rerun.py $E/cam2/stereo.edex --mode inertial --cameras 0 1 --rectified --slam \
+python3 track_edex_rerun.py $E/stereo_imu_cam2/stereo.edex --mode inertial --cameras 0 1 --rectified --slam \
     --out-dir $R/edex/cam2_stereo_imu/loop_closure --save $R/edex/cam2_stereo_imu/loop_closure/run.rrd
 
 # 3. cuVSLAM directly on the bag (same library, no EDEX)

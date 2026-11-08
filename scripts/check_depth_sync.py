@@ -20,8 +20,8 @@ Pairs:
     depth -> ir1        native depth vs infra1 (expected 0 ms)
 
 Usage:
-    python3 check_depth_sync.py ~/dotlumen/Captures -o depth_sync.json
-    python3 check_depth_sync.py ~/dotlumen/Captures --only 9_Loop_closure/loop_closure
+    python3 check_depth_sync.py ~/dotlumen/Captures/original -o depth_sync.json
+    python3 check_depth_sync.py ~/dotlumen/Captures/original --only 9_Loop_closure/loop_closure
 """
 
 import argparse
@@ -90,7 +90,7 @@ def fmt(p):
 
 def main():
     ap = argparse.ArgumentParser(description="Timestamps of depth vs RGB and IR in every capture")
-    ap.add_argument("root", help="captures folder (e.g. ~/dotlumen/Captures)")
+    ap.add_argument("root", help="captures folder (e.g. ~/dotlumen/Captures/original)")
     ap.add_argument("-o", "--output", default="depth_sync.json", help="JSON file with all the statistics")
     ap.add_argument("--only", nargs="+", default=None, help="only these relative capture paths")
     args = ap.parse_args()

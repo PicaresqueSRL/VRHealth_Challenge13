@@ -348,7 +348,7 @@ def main():
     ap.add_argument("--bag", default=None,
                     help="source bag for /tf_static (default: from ../bag_report.json)")
     ap.add_argument("--async-sba", action="store_true",
-                    help="async_sba=True (as in real time; default False: deterministic offline run)")
+                    help="async_sba=True (as in real time; default False: synchronous offline run)")
     ap.add_argument("--no-viewer", action="store_true", help="do not open the Rerun viewer")
     ap.add_argument("--world", choices=["base", "native"], default="base",
                     help="3D world frame: 'base' = base frame (--base-frame) at the first pose, z up, the same for "

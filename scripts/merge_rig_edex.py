@@ -28,7 +28,7 @@ convention (x forward, y left, z up), as in `ros2 run tf2_ros static_transform_p
 The <cam>_link -> optical frame transforms are read from the bag's /tf_static.
 
 Example:
-    python3 merge_rig_edex.py ~/dotlumen/Captures/edex/9_Loop_closure/loop_closure --streams ir
+    python3 merge_rig_edex.py ~/dotlumen/Captures/edex_old/edex/9_Loop_closure/loop_closure --streams ir
 """
 
 import argparse

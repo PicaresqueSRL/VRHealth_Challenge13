@@ -16,7 +16,7 @@ Brown-Conrady), and compares it pixel by pixel with the recorded one:
     only computed       pixels with depth only in the computed image
 
 Usage:
-    python3 check_depth_alignment.py ~/dotlumen/Captures/9_Loop_closure/loop_closure --cam cam2 --frames 20
+    python3 check_depth_alignment.py ~/dotlumen/Captures/original/9_Loop_closure/loop_closure --cam cam2 --frames 20
     python3 check_depth_alignment.py <bag> --cam cam1 --save-dir /tmp/align_check   # also writes PNGs
 """
 
