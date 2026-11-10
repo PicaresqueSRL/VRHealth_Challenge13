@@ -26,6 +26,7 @@ messages are decoded by `bag2edex.py`.
    - view_frames.py (common 3D frame of the viewers)
    - check_depth_sync.py
    - check_depth_alignment.py
+   - ir_exposure_stats.py
    - run_output.py
    - compare_runs.py
    - db3_to_mcap.sh
@@ -48,6 +49,7 @@ messages are decoded by `bag2edex.py`.
 | `view_frames.py` | Python module | Common 3D frame of the Rerun viewers (base frame at the first pose) and overlay of saved trajectories (`--world`, `--compare`) |
 | `check_depth_sync.py` | Python | Measures the stamps of native and aligned depth against RGB and IR in every capture |
 | `check_depth_alignment.py` | Python | Compares the aligned depth computed by `bag2edex.py` with the one recorded by the realsense node |
+| `ir_exposure_stats.py` | Python | Per-frame exposure statistics (median, percentiles, saturated and dark pixels) of the four IR streams of an EDEX capture, to detect over/under-exposed captures |
 | `run_output.py` | Python module | Saves the output of a PyCuVSLAM run in the CSV format of the Isaac ROS runs; used by the two tracking scripts (`--out-dir`) |
 | `compare_runs.py` | Python | Compares saved runs with each other and with the ground truth: metrics, tables, plots |
 | `db3_to_mcap.sh` | Bash | Reduces a bag to the topics needed by cuVSLAM and converts it to compressed MCAP |
@@ -781,6 +783,36 @@ python3 check_depth_alignment.py ~/dotlumen/Captures/original/9_Loop_closure/loo
 | `--save-dir` | text | - | write recorded / computed / difference images here |
 | `-o`, `--output` | text | - | JSON file with the results |
 
+## ir_exposure_stats.py
+
+Measures the exposure of the IR images of an EDEX capture written by `bag2edex.py` / `bag2edex_modes.py`. It reads
+every image in `images/cam1/infra1`, `images/cam1/infra2`, `images/cam2/infra1` and `images/cam2/infra2` (PNG or JPG)
+and writes one CSV row per image with: median, mean, 5th and 95th percentile of the pixel intensity, share of saturated
+pixels (>= 250) and share of dark pixels (<= 5). Image file names are frame indices, so the timestamp is looked up in
+the `frame_metadata.jsonl` files of the mode subfolders (left empty if not found). 16-bit images are scaled to 0-255
+so that the thresholds stay comparable, and a note reports how many there were. Images are processed in parallel.
+
+```bash
+python3 ir_exposure_stats.py ~/dotlumen/Captures/edex/9_Loop_closure/loop_closure_2 \
+    -o ~/dotlumen/VRHealth_Challenge13/results/ir_exposure/loop_closure_2_ir_stats.csv
+```
+
+**Arguments and options**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `capture_dir` (positional) | text | **required** | EDEX capture folder (containing `images/` and the mode subfolders) |
+| `-o`, `--out` | text | `<capture>_ir_stats.csv` | output CSV (in the current folder by default) |
+| `-j`, `--jobs` | integer | number of CPUs | parallel worker processes |
+
+**Output columns**: `capture`, `camera` (`cam1_infra1`, ...), `file`, `timestamp_ns`, `bit_depth`, `median`, `mean`,
+`p5`, `p95`, `frac_sat_ge250`, `frac_dark_le5`.
+
+**Reading the results**: on a correctly exposed indoor capture (`loop_closure`) the per-frame medians spread
+between about 25 and 240 (median 105-110 on cam1, 155-160 on cam2) with about 1% (cam1) to 11% (cam2) saturated
+pixels. On `loop_closure_2` every frame of all four IR streams has median 255 and more than 93% saturated pixels:
+the IR images carry no texture, so IR-based cuVSLAM modes cannot track on that capture.
+
 ## run_output.py
 
 Python module (no command line) used by `track_edex_rerun.py` and `track_bag_rerun.py` when `--out-dir` is given.
@@ -950,6 +982,7 @@ identity, as in the Isaac ROS output).
 | `conversion_summary.json` | `convert_all.py` | per capture: source, status, return code, duration, log |
 | `conversion_summary.tsv` | `all_db3_to_mcap.sh` | per capture: source, status, duration, size before and after |
 | `report.md`, `metrics.json`, `pairs.csv` | `compare_runs.py` | comparison tables and metrics |
+| `<capture>_ir_stats.csv` | `ir_exposure_stats.py` | per IR image: intensity median, mean, p5, p95, saturated and dark pixel shares |
 
 # Conventions and notes
 
