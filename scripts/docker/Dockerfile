@@ -79,7 +79,7 @@ COPY --from=build /src/cuvslam_version.txt /opt/cuvslam_version.txt
 # The scripts are copied into the image; mount the repository over /opt/vrhealth/scripts
 # (docker/run.sh does) to use the current version without rebuilding.
 COPY . /opt/vrhealth/scripts
-RUN chmod +x /opt/vrhealth/scripts/*.py /opt/vrhealth/scripts/*.sh \
+RUN chmod 755 /opt/vrhealth/scripts/*.py /opt/vrhealth/scripts/*.sh \
     && rm -rf /opt/vrhealth/scripts/.venv /opt/vrhealth/scripts/__pycache__
 
 ENV PATH=/opt/venv/bin:/opt/vrhealth/scripts:${PATH} \
@@ -99,8 +99,5 @@ RUN python3 -c "import numpy, cv2, zstandard, lz4, matplotlib, rerun, rosbags; p
     && test -x /opt/venv/bin/rosbags-convert \
     && cat /opt/cuvslam_version.txt
     
-# If all ok, set execute permissions on scripts in /opt/vrhealth/scripts
-RUN chmod 755 /opt/vrhealth/scripts/*.py && chmod 755 /opt/vrhealth/scripts/*.sh
-
 WORKDIR /opt/vrhealth/scripts
 CMD ["bash"]
