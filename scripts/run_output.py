@@ -138,7 +138,8 @@ class RunWriter:
         # vo_state as in Isaac ROS (1 = success, 2 = failed)
         self.status.append([ts_ns / 1e9, 1 if ok else 2, round(track_ms, 3), n_landmarks]
                            + [obs_counts.get(k, 0) for k in range(self.n_cameras)])
-        slam = getattr(tracker, "slam", None) if tracker is not None else None
+        # reading tracker.slam raises RuntimeError when SLAM is not enabled
+        slam = tracker.slam if tracker is not None and tracker.is_slam_enabled() else None
         if slam is not None and hasattr(slam, "get_slam_metrics"):
             try:
                 m = slam.get_slam_metrics()

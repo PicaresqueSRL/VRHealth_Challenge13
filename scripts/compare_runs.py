@@ -318,29 +318,39 @@ def make_plots(runs, traj, pairs_series, gt, icp_res, out_dir):
         plt.close(fig)
         files.append(f)
 
-    # trajectories aligned to the ground truth by IcpAlign.py (rigid)
+    # trajectories aligned to the ground truth by IcpAlign.py: one plot for the rigid alignment
+    # (<traj>_vs_ground_truth.png) and one for the alignment with scale (<traj>_vs_ground_truth_scaled.png)
     if gt is not None:
         pts, subs = gt
-        fig, ax = plt.subplots(figsize=(7.5, 6.5))
-        for s in dict.fromkeys(subs):
-            sel = np.array([x == s for x in subs])
-            ax.plot(pts[sel, 0], pts[sel, 1], color=GT_COLOR, linewidth=3, alpha=0.6,
-                    label="ground truth" if s == subs[0] else None)
-        for k, r in enumerate(runs):
-            res = icp_res.get((r["label"], traj, "rigid"))
-            if not res or "aligned_csv" not in res or not os.path.exists(res["aligned_csv"]):
+        for mode, suffix, title in (("rigid", "", "rigid ICP alignment"),
+                                    ("scaled", "_scaled", "ICP alignment with scale")):
+            fig, ax = plt.subplots(figsize=(7.5, 6.5))
+            for s in dict.fromkeys(subs):
+                sel = np.array([x == s for x in subs])
+                ax.plot(pts[sel, 0], pts[sel, 1], color=GT_COLOR, linewidth=3, alpha=0.6,
+                        label="ground truth" if s == subs[0] else None)
+            drawn = 0
+            for k, r in enumerate(runs):
+                res = icp_res.get((r["label"], traj, mode))
+                if not res or "aligned_csv" not in res or not os.path.exists(res["aligned_csv"]):
+                    continue
+                p, _ = load_xyz(res["aligned_csv"])
+                label = f"{r['label']} (RMSE {res.get('rmse_m', float('nan')):.2f} m"
+                if mode == "scaled":
+                    label += f", scale {res.get('scale', float('nan')):.3f}"
+                ax.plot(p[:, 0], p[:, 1], color=COLORS[k % len(COLORS)], linewidth=2, label=label + ")")
+                drawn += 1
+            if not drawn:
+                plt.close(fig)
                 continue
-            p, _ = load_xyz(res["aligned_csv"])
-            ax.plot(p[:, 0], p[:, 1], color=COLORS[k % len(COLORS)], linewidth=2,
-                    label=f"{r['label']} (RMSE {res.get('rmse_m', float('nan')):.2f} m)")
-        ax.set_aspect("equal", adjustable="datalim")
-        style(ax, f"{traj}: rigid ICP alignment to the ground truth", "X [m]", "Y [m]")
-        legend(ax)
-        f = os.path.join(out_dir, f"{traj}_vs_ground_truth.png")
-        fig.tight_layout()
-        fig.savefig(f, dpi=130)
-        plt.close(fig)
-        files.append(f)
+            ax.set_aspect("equal", adjustable="datalim")
+            style(ax, f"{traj}: {title} to the ground truth", "X [m]", "Y [m]")
+            legend(ax)
+            f = os.path.join(out_dir, f"{traj}_vs_ground_truth{suffix}.png")
+            fig.tight_layout()
+            fig.savefig(f, dpi=130)
+            plt.close(fig)
+            files.append(f)
     return files
 
 

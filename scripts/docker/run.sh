@@ -6,7 +6,7 @@
 # Usage:
 #   docker/run.sh                                   interactive shell
 #   docker/run.sh <command> [args ...]              run one command, e.g.
-#   docker/run.sh track_bag_rerun.py ~/dotlumen/Captures/9_Loop_closure/loop_closure --mode inertial --slam
+#   docker/run.sh track_bag_rerun.py ~/dotlumen/Captures/original/9_Loop_closure/loop_closure --mode inertial --slam
 #
 # Environment variables:
 #   IMAGE=vrhealth-cuvslam      image name

@@ -6,7 +6,7 @@ cuVSLAM without ROS, visualize the runs in Rerun, and compare the results with t
 with the ground truth.
 
 None of the tools needs ROS: the bags (`.db3` sqlite3 or `.mcap`) are read directly and the ROS 2
-messages are decoded by `bag_to_cuvslam.py`.
+messages are decoded by `bag2edex.py`.
 
 ## Contents
 
@@ -15,11 +15,19 @@ messages are decoded by `bag_to_cuvslam.py`.
 3. Docker
 4. Typical workflows
 5. Script reference
-   - bag_to_cuvslam.py
+   - bag2edex.py
+   - bag2edex_modes.py
    - convert_all.py
    - merge_rig_edex.py
    - track_edex_rerun.py
    - track_bag_rerun.py
+   - map_bag.py
+   - track_edex_modes.py
+   - bag_output_rerun.py
+   - view_frames.py (common 3D frame of the viewers)
+   - check_depth_sync.py
+   - check_depth_alignment.py
+   - ir_exposure_stats.py
    - run_output.py
    - compare_runs.py
    - db3_to_mcap.sh
@@ -31,11 +39,19 @@ messages are decoded by `bag_to_cuvslam.py`.
 
 | Script | Type | What it does |
 |---|---|---|
-| `bag_to_cuvslam.py` | Python | Converts a ROS 2 bag into one EDEX dataset per camera (RGB, infra1, infra2, IMU), with synchronization, calibration and a quality report of the bag |
-| `convert_all.py` | Python | Runs `bag_to_cuvslam.py` on every capture of a folder, preserving the folder structure and using the `converted/` copies when present |
+| `bag2edex.py` | Python | Converts a ROS 2 bag into one EDEX dataset per camera (RGB, infra1, infra2, IMU), with synchronization, calibration and a quality report of the bag |
+| `bag2edex_modes.py` | Python | Converts a capture into one EDEX per cuVSLAM input configuration (RGB-D, stereo + IMU on each camera, Multicamera, Multisensor), with images shared between the configurations |
+| `convert_all.py` | Python | Runs `bag2edex.py` (or another converter, `--converter`) on every capture of a folder, preserving the folder structure and using the `converted/` copies when present |
 | `merge_rig_edex.py` | Python | Merges the cam1 and cam2 EDEX datasets into a single multi-camera rig, using the extrinsic between the two cameras (default: from the CAD of the mount) |
 | `track_edex_rerun.py` | Python | Runs cuVSLAM (PyCuVSLAM) on an EDEX dataset, shows the run in Rerun and optionally saves the output |
 | `track_bag_rerun.py` | Python | Runs cuVSLAM directly on a ROS 2 bag, without creating an EDEX and without writing images to disk; shows the run in Rerun and optionally saves the output |
+| `map_bag.py` | Python | Builds a cuVSLAM SLAM map from a bag (`build`) and tests relocalization in it (`localize`): new session on cuts of the capture, prior from the pose before a simulated tracking loss, errors in the map frame |
+| `track_edex_modes.py` | Python | Runs cuVSLAM without viewer on an EDEX of `bag2edex_modes.py`, in any odometry mode (also RGBD and Multisensor), and saves the output |
+| `bag_output_rerun.py` | Python | Shows in Rerun a cuVSLAM run already done, from the bag of its output topics or from a folder with its saved trajectories (and optionally the input bag for the images) |
+| `view_frames.py` | Python module | Common 3D frame of the Rerun viewers (base frame at the first pose) and overlay of saved trajectories (`--world`, `--compare`) |
+| `check_depth_sync.py` | Python | Measures the stamps of native and aligned depth against RGB and IR in every capture |
+| `check_depth_alignment.py` | Python | Compares the aligned depth computed by `bag2edex.py` with the one recorded by the realsense node |
+| `ir_exposure_stats.py` | Python | Per-frame exposure statistics (median, percentiles, saturated and dark pixels) of the four IR streams of an EDEX capture, to detect over/under-exposed captures |
 | `run_output.py` | Python module | Saves the output of a PyCuVSLAM run in the CSV format of the Isaac ROS runs; used by the two tracking scripts (`--out-dir`) |
 | `compare_runs.py` | Python | Compares saved runs with each other and with the ground truth: metrics, tables, plots |
 | `db3_to_mcap.sh` | Bash | Reduces a bag to the topics needed by cuVSLAM and converts it to compressed MCAP |
@@ -45,17 +61,20 @@ messages are decoded by `bag_to_cuvslam.py`.
 
 Dependencies between the scripts (they must stay in the same folder):
 
-- `track_bag_rerun.py` imports from `bag_to_cuvslam.py`, `merge_rig_edex.py`, `track_edex_rerun.py` and `run_output.py`;
-- `track_edex_rerun.py` imports `run_output.py` (and `bag_to_cuvslam.py` to read `/tf_static` when `--out-dir` is used);
-- `merge_rig_edex.py` imports from `bag_to_cuvslam.py`;
-- `convert_all.py` runs `bag_to_cuvslam.py`; `all_db3_to_mcap.sh` runs `db3_to_mcap.sh`, which runs `bag_to_cuvslam.py --dry-run` as a check.
+- `track_bag_rerun.py` imports from `bag2edex.py`, `merge_rig_edex.py`, `track_edex_rerun.py` and `run_output.py`;
+- `map_bag.py` imports from `bag2edex.py`, `merge_rig_edex.py`, `run_output.py`, `track_bag_rerun.py` and `track_edex_rerun.py`;
+- `track_edex_rerun.py` imports `run_output.py` (and `bag2edex.py` to read `/tf_static` when `--out-dir` is used);
+- `merge_rig_edex.py` and `bag_output_rerun.py` import from `bag2edex.py`;
+- the three Rerun viewers (`track_edex_rerun.py`, `track_bag_rerun.py`, `bag_output_rerun.py`) import `view_frames.py`;
+- `bag2edex_modes.py` imports from `bag2edex.py` and `merge_rig_edex.py`; `track_edex_modes.py` imports from `track_edex_rerun.py` and `run_output.py`;
+- `convert_all.py` runs `bag2edex.py` or the script given with `--converter`; `all_db3_to_mcap.sh` runs `db3_to_mcap.sh`, which runs `bag2edex.py --dry-run` as a check.
 
 ## Setup
 
 ```bash
 cd ~/dotlumen/VRHealth_Challenge13/scripts
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt          # numpy, opencv-python-headless, zstandard, lz4
+pip install -r requirements.txt          # numpy, opencv-python-headless, zstandard, lz4, rerun-sdk
 ```
 
 Additional requirements:
@@ -63,6 +82,7 @@ Additional requirements:
 | Needed by | Requirement |
 |---|---|
 | `track_edex_rerun.py`, `track_bag_rerun.py` | cuVSLAM Python bindings (built from the cuVSLAM repository) and `rerun-sdk==0.33.1` |
+| `bag_output_rerun.py` | `rerun-sdk==0.33.1` (no cuVSLAM) |
 | `compare_runs.py` | `matplotlib`; `IcpAlign.py` from `results/ground_truth` for the ground-truth comparison |
 | `db3_to_mcap.sh`, `all_db3_to_mcap.sh` | `rosbags` (`pip install rosbags`), which provides `rosbags-convert` |
 
@@ -97,7 +117,7 @@ paths saved in `bag_report.json` and `run_info.json` stay valid) and the scripts
 
 ```bash
 docker/run.sh                                             # interactive shell
-docker/run.sh track_bag_rerun.py ~/dotlumen/Captures/9_Loop_closure/loop_closure \
+docker/run.sh track_bag_rerun.py ~/dotlumen/Captures/original/9_Loop_closure/loop_closure \
     --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --slam --out-dir ~/dotlumen/runs/lc --no-viewer
 DATA=/mnt/data NO_X11=1 docker/run.sh convert_all.py /mnt/data/Captures -o /mnt/data/edex
 ```
@@ -112,29 +132,38 @@ DATA=/mnt/data NO_X11=1 docker/run.sh convert_all.py /mnt/data/Captures -o /mnt/
 If the Rerun viewer cannot open a window, save the recording with `--save run.rrd` and open it on the host
 with `rerun run.rrd`.
 
+When the scripts open the viewer inside the container they stay alive after the run, because the viewer is closed
+together with the container: close the viewer window (or press Ctrl+C) to end them.
+
 ## Typical workflows
 
 **Convert all captures to EDEX**
 
 ```bash
-python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex
+python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex_old/edex
+```
+
+**Convert all captures to one EDEX per cuVSLAM configuration**
+
+```bash
+python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex --converter bag2edex_modes.py
 ```
 
 **Reduce the bags (keep only what cuVSLAM needs, compressed MCAP)**
 
 ```bash
-./all_db3_to_mcap.sh -o ~/dotlumen/Captures/mcap ~/dotlumen/Captures
+./all_db3_to_mcap.sh -o ~/dotlumen/Captures/mcap ~/dotlumen/Captures/original
 ```
 
 **Stereo IR + IMU on one capture, from the EDEX and from the bag, with saved output**
 
 ```bash
-B=~/dotlumen/Captures/9_Loop_closure/loop_closure
-E=~/dotlumen/Captures/edex_ir/9_Loop_closure/loop_closure
+B=~/dotlumen/Captures/original/9_Loop_closure/loop_closure
+E=~/dotlumen/Captures/edex/9_Loop_closure/loop_closure
 R=~/dotlumen/VRHealth_Challenge13/results/pycuvslam
 
-python3 bag_to_cuvslam.py $B -o $E --reference ir --cameras cam2
-python3 track_edex_rerun.py $E/cam2/stereo.edex --mode inertial --cameras 0 1 --rectified --slam \
+python3 bag2edex_modes.py $B -o $E
+python3 track_edex_rerun.py $E/stereo_imu_cam2/stereo.edex --mode inertial --cameras 0 1 --rectified --slam \
     --out-dir $R/edex/cam2_stereo_imu/loop_closure --save $R/edex/cam2_stereo_imu/loop_closure/run.rrd
 python3 track_bag_rerun.py $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --slam \
     --out-dir $R/bag/cam2_stereo_imu/loop_closure --save $R/bag/cam2_stereo_imu/loop_closure/run.rrd
@@ -149,18 +178,26 @@ python3 compare_runs.py ros=$G/slam_csv/cam2_stereo_imu/loop_closure \
     --gt $G/ground_truth/loop_closure/paths3d.csv --out $G/comparisons/cam2_stereo_imu/loop_closure
 ```
 
+**Map and relocalization test on one capture**
+
+```bash
+M=~/dotlumen/VRHealth_Challenge13/results/maps/cam2_stereo_imu/loop_closure
+python3 map_bag.py build $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --out-dir $M
+python3 map_bag.py localize $B --map $M --out-dir $M/localize
+```
+
 **4-IR rig with both cameras**
 
 ```bash
-python3 merge_rig_edex.py ~/dotlumen/Captures/edex/9_Loop_closure/loop_closure --streams ir
-python3 track_edex_rerun.py ~/dotlumen/Captures/edex/9_Loop_closure/loop_closure/rig_ir/stereo.edex --mode multicamera
+python3 merge_rig_edex.py ~/dotlumen/Captures/edex_old/edex/9_Loop_closure/loop_closure --streams ir
+python3 track_edex_rerun.py ~/dotlumen/Captures/edex_old/edex/9_Loop_closure/loop_closure/rig_ir/stereo.edex --mode multicamera
 # or directly from the bag
 python3 track_bag_rerun.py $B --mode multicamera --streams cam1/ir1 cam1/ir2 cam2/ir1 cam2/ir2
 ```
 
 # Script reference
 
-## bag_to_cuvslam.py
+## bag2edex.py
 
 Converts a ROS 2 bag recorded with RealSense cameras into the EDEX format read by cuVSLAM, one dataset
 per camera. It reads the bag directly (sqlite3 `.db3` or MCAP, also zstd/lz4 compressed) and decodes the
@@ -182,6 +219,40 @@ per camera. It reads the bag directly (sqlite3 `.db3` or MCAP, also zstd/lz4 com
    `<cam>_gyro_optical_frame` when the IMU frame id is not in `/tf_static`.
 6. Writes the images (in parallel) and a quality report (brightness, saturated and black pixels, sharpness).
 
+**Data kept and dropped**
+
+| Data | In the EDEX |
+|---|---|
+| RGB images (`color/image_raw`) | JPEG (`--jpg-quality`, default 95): all of them with `--reference rgb`, only those within `--tolerance-ms` of an IR pair with `--reference ir` |
+| IR images (`infra1`, `infra2`) | lossless PNG (8-bit): only complete pairs (infra2 within `--stereo-tolerance-ms` of infra1); all pairs with `--reference ir`, only those matched to an RGB frame with `--reference rgb` |
+| Timestamps | header stamp of each image (or receive time with `--time receive`), in `frame_metadata.jsonl` and `sync.csv` |
+| Calibration | intrinsics and distortion from the first `camera_info` of each stream, extrinsics from `/tf_static`, stereo baseline from `P[3]` of infra2 |
+| IMU (`<cam>/imu`) | every sample (angular velocity, linear acceleration, timestamp) from 0.5 s before the first frame to 0.5 s after the last, only for `--imu-camera` (default cam2); orientation and covariances are not used |
+| Depth (with `--depth`) | depth aligned to the RGB image, 16-bit PNG in raw units (mm), attached to the RGB frame with the same stamp within `--depth-tolerance-ms` (1 ms): the recorded `aligned_depth_to_color` when the bag has it, otherwise computed from `depth/image_rect_raw` |
+| Not converted | native depth (only used to compute the aligned one), `aligned_depth_to_infra1`, point clouds, separate `accel`/`gyro` topics, dynamic `/tf`, any other topic; messages with an anomalous stamp (`--stale-threshold`) and duplicated stamps |
+
+**Depth (`--depth`)**
+
+Only the depth aligned to the RGB image is written (`images/depth/NNNNNN.png`, same index as the RGB frame).
+
+- Source (`--depth-source auto`): `/<cam>/aligned_depth_to_color/image_raw` when the bag has messages on it; otherwise
+  it is computed from `/<cam>/depth/image_rect_raw` and its `camera_info` as the librealsense `align` block does:
+  each valid depth pixel is deprojected at its two corners, moved to the RGB frame with the `/tf_static` extrinsic,
+  projected with the RGB intrinsics and distortion (`--depth-color-model`), and its footprint is filled with the raw
+  depth value, keeping the nearest value when several pixels overlap. `recorded` or `computed` force one source.
+- Synchronization: cuVSLAM has no timestamp for depth and assumes it was taken with the image, so each depth image is
+  attached to the RGB frame with the same stamp within `--depth-tolerance-ms` (default 1 ms). The recorded aligned depth
+  carries the stamp of the native depth frame, which coincides with an RGB frame when both streams are hardware-synced;
+  depth runs at ~15 Hz against ~30 Hz RGB, so about half of the RGB frames get a depth (nearly all with `--reference ir`).
+  The real depth stamp is written to `frame_metadata.jsonl`; `sync.csv` and `bag_report.json` give the RGB-depth
+  offset, the frames with depth and the share of valid pixels.
+- EDEX fields: the RGB camera gets `depth_id: 0` and `depth_scale_factor` (`--depth-scale-factor`, 1000 = mm), the body a
+  `depth_sequence`, each frame with depth a `depth` list (`id`, `filename`, `timestamp`). With `--reference rgb` this is the
+  layout of the cuVSLAM RGB-D datasets. With `--reference ir` the RGB is camera 2: the cuVSLAM C++ EDEX reader uses
+  `depth_id` as the index of the depth stream, the cuVSLAM Python tools as a camera id.
+- `check_depth_sync.py` measures the depth stamps of all captures; `check_depth_alignment.py` compares the computed
+  alignment with the recorded one on bags that have both.
+
 **Camera order in the EDEX**: `rgb, ir1, ir2` with `--reference rgb`; `ir1, ir2, rgb` with `--reference ir`.
 Use these indices in `track_edex_rerun.py --cameras`.
 
@@ -202,8 +273,8 @@ Use these indices in `track_edex_rerun.py --cameras`.
 **Usage**
 
 ```bash
-python3 bag_to_cuvslam.py <bag> -o <output> [options]
-python3 bag_to_cuvslam.py ~/dotlumen/Captures/9_Loop_closure/loop_closure -o /tmp/lc --dry-run   # analysis only
+python3 bag2edex.py <bag> -o <output> [options]
+python3 bag2edex.py ~/dotlumen/Captures/original/9_Loop_closure/loop_closure -o /tmp/lc --dry-run   # analysis only
 ```
 
 **Arguments and options**
@@ -239,10 +310,117 @@ python3 bag_to_cuvslam.py ~/dotlumen/Captures/9_Loop_closure/loop_closure -o /tm
 | `--stale-threshold` | number | `0.5` | drop messages whose stamp-receive offset deviates from the median by more than N seconds (0 = disabled) |
 | `--reference` | `rgb` \| `ir` \| `auto` | `rgb` | stream that defines the frames (camera 0): rgb, ir pair, or auto = the most frequent |
 | `--dry-run` | flag | off | analyze and synchronize without writing images |
+| `--depth` | flag | off | also write the depth aligned to the RGB image (images/depth, 16-bit PNG) |
+| `--depth-source` | `auto` \| `recorded` \| `computed` | `auto` | auto = recorded aligned depth when present, otherwise computed from the native depth |
+| `--depth-tolerance-ms` | number | `1.0` | maximum RGB &lt;-&gt; depth offset (cuVSLAM assumes depth taken with the image) |
+| `--aligned-depth-topic` | text | `/{cam}/aligned_depth_to_color/image_raw` |  |
+| `--depth-topic` | text | `/{cam}/depth/image_rect_raw` | native depth, used to compute the aligned depth |
+| `--depth-info-topic` | text | `/{cam}/depth/camera_info` |  |
+| `--depth-scale-factor` | number | `1000.0` | depth units per meter, written to the EDEX (RealSense: 1000 = millimeters) |
+| `--depth-color-model` | `plumb_bob` \| `inverse` | `plumb_bob` | distortion model used to project into the RGB image when computing the aligned depth |
+
+## bag2edex_modes.py
+
+Converts one capture (`cam1` and `cam2`) into one EDEX per cuVSLAM input configuration. The images are written once in
+the capture folder and shared by all the configurations. It reads the original bags, because the reduced MCAP bags do not
+contain the native depth. Use `bag2edex.py` for per-camera datasets with the full quality report.
+
+**Configurations** (a configuration is skipped, with the reason in `modes.json`, when a stream is missing)
+
+| Folder | Cameras (in EDEX order) | Depth | IMU | cuVSLAM modes |
+|---|---|---|---|---|
+| `rgbd_ir_<cam>` | infra1 | native depth (camera 0) | - | RGBD |
+| `rgbd_rgb_<cam>` | RGB (`brown5k`) | aligned to the RGB (camera 0) | - | RGBD |
+| `stereo_imu_<cam>` | infra1, infra2 | - | same camera | Inertial, stereo (Multicamera), Mono (`--cameras 0`) |
+| `multicamera_ir` | cam2 infra1, cam2 infra2, cam1 infra1, cam1 infra2 | - | - | Multicamera, experimental |
+| `multisensor_ir_depth` | cam2 infra1, cam1 infra1, cam2 infra2, cam1 infra2 | native depth on the two infra1 | cam2 | Multisensor, experimental |
+| `multisensor_all` | as above + cam2 RGB, cam1 RGB rectified to pinhole | native depth on the two infra1 | cam2 | Multisensor, experimental |
+
+Captures without infra2 keep only the configurations that do not need it, and the two Multisensor configurations use infra1 only.
+
+**Depth**: the native depth has the same stamps, intrinsics and viewpoint as infra1, so it is pixel-aligned with it. RGB-D
+needs a depth in every frame, so only the frames with a depth are kept (within `--depth-tolerance-ms`). The depth aligned to
+the RGB is the recorded one when the bag has it; otherwise it is computed from the native depth as in `bag2edex.py`, within
+`--computed-depth-tolerance-ms`. Cameras with depth come first in the EDEX, because `depth_id` must match both the camera index
+and the `depth_sequence` index; for this reason the Multisensor configurations cannot use `rectified_stereo_camera`.
+
+**cam1 + cam2 configurations (experimental)**: the two D455 are not hardware-synchronized. The frames are defined by the
+stereo pairs of the reference camera (`--reference-cam`, default cam2). The cam1 pair and the RGB images within
+`--rig-tolerance-ms` are attached and all the images of a frame get the timestamp of the reference camera; frames without cam1 stay
+partial, cam1 frames without a match are discarded. The real stamps are in `true_timestamp` and `sync.csv`. These images are not
+simultaneous: at 200 deg/s, 15 ms correspond to about 20 pixels between the cameras. cam1 is connected to cam2 with the CAD extrinsic
+(`--extrinsic`).
+
+**RGB rectification** (`rgb_rect`, Multisensor only supports pinhole cameras): for each pixel `(u', v')` of the rectified image,
+with `K` and `D = [k1, k2, p1, p2, k3]` of `camera_info`,
+
+```
+x = (u' - cx) / fx        y = (v' - cy) / fy        r^2 = x^2 + y^2
+c = 1 + k1 r^2 + k2 r^4 + k3 r^6
+xd = x c + 2 p1 x y + p2 (r^2 + 2 x^2)
+yd = y c + 2 p2 x y + p1 (r^2 + 2 y^2)
+u = fx xd + cx            v = fy yd + cy
+```
+
+and the source image is sampled at `(u, v)` with bicubic interpolation (replicated border). `R` is the identity, so frame and
+extrinsics do not change, and the new camera matrix is `K`, so the resolution stays 640x480. On the D455 captures no pixel falls
+outside the source and the shift is at most about 6 pixels. `--rgb-distortion-scale` multiplies all the coefficients: a comparison of
+the infra1 and RGB gradients suggests that 0.4-0.7 fits better than the factory values, but the default is 1 until a calibration
+is available.
+
+**Output**
+
+```
+<output>/
+├── images/<cam>/{infra1,infra2,rgb,rgb_rect,depth_native,depth_aligned}/NNNNNN.{png,jpg}
+├── imu/IMU_<cam>.jsonl
+├── bag_report.json          path of the source bag
+├── modes.json               per configuration: frames, cameras, offsets, predicted stereo pairs, skipped ones
+└── <configuration>/
+    ├── stereo.edex
+    ├── frame_metadata.jsonl
+    ├── sync.csv             per frame: real stamp of each camera and offset from the frame stamp
+    └── calibration.json     rig frame, T_rig_from_base_opencv, cameras, IMU, rectification
+```
+
+No links are used: paths inside a configuration are relative (`../images/...`, `../imu/...`), so a configuration needs the whole capture
+folder. `sequence` and `depth_sequence` have one entry per frame (empty for a missing image).
+
+**Usage**
+
+```bash
+python3 bag2edex_modes.py ~/dotlumen/Captures/original/9_Loop_closure/loop_closure -o ~/dotlumen/Captures/edex/9_Loop_closure/loop_closure
+python3 bag2edex_modes.py <capture> -o <output> --modes stereo_imu multisensor_all --dry-run
+```
+
+**Arguments and options**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `bag` (positional) | text | **required** | capture folder (.db3/.mcap) |
+| `-o`, `--output` | text | **required** | output folder of this capture |
+| `--modes` | one or more of `rgbd_ir`, `rgbd_rgb`, `stereo_imu`, `multicamera_ir`, `multisensor_ir_depth`, `multisensor_all` | all | configurations to write |
+| `--stereo-tolerance-ms` | number | `1.0` | maximum infra1 <-> infra2 offset |
+| `--depth-tolerance-ms` | number | `1.0` | maximum image <-> depth offset (infra1 + native depth, RGB + recorded aligned depth) |
+| `--computed-depth-tolerance-ms` | number | `8.0` | maximum RGB <-> native depth offset when the aligned depth is computed |
+| `--rig-tolerance-ms` | number | `16.0` | maximum offset of cam1 and RGB images from the reference frame in the cam1 + cam2 configurations |
+| `--reference-cam` | text | `cam2` | camera defining the frames of the cam1 + cam2 configurations |
+| `--extrinsic` | `X` `Y` `Z` `QX` `QY` `QZ` `QW` | `-0.04 0.0 0.0509 0.0 -0.42273 0.0 0.90626` | T_cam1_link_from_cam2_link (default: CAD) |
+| `--depth-scale-factor` | number | `1000.0` | depth units per meter |
+| `--depth-color-model` | `plumb_bob` \| `inverse` | `plumb_bob` | RGB distortion model when computing the aligned depth |
+| `--rgb-distortion-scale` | number | `1.0` | factor applied to the `camera_info` distortion coefficients when rectifying the RGB |
+| `--stale-threshold` | number | `0.5` | drop messages whose stamp-receive offset is more than N s from the median (0 = disabled) |
+| `--gyro-noise-density`, `--gyro-random-walk` | number | `0.000244`, `1.9393e-05` | gyroscope noise written to the EDEX |
+| `--accel-noise-density`, `--accel-random-walk` | number | `0.001862`, `0.003` | accelerometer noise written to the EDEX |
+| `--jpg-quality` | integer | `95` | JPEG quality of the RGB images |
+| `--png-compression` | `0`-`9` | `6` | PNG compression of IR and depth |
+| `--workers` | integer | number of CPUs, between 2 and 8 | threads for image encoding |
+| `--overwrite` | flag | off | replace the output folder (a `convert.log` in it is kept) |
+| `--dry-run` | flag | off | build the configurations without writing anything |
 
 ## convert_all.py
 
-Converts every capture of a folder to EDEX by running `bag_to_cuvslam.py --reference auto --overwrite` on
+Converts every capture of a folder to EDEX by running `bag2edex.py --reference auto --overwrite` on
 each one, and mirrors the folder structure in the output folder.
 
 **Rules**
@@ -253,15 +431,15 @@ each one, and mirrors the folder structure in the output folder.
 - Folders whose name starts with `vslam`, `converted` folders and the output folder are skipped.
 - Bags without camera topics (e.g. SLAM output only) are reported with status `no cameras`.
 
-**Output**: for each capture, the `bag_to_cuvslam.py` output and `convert.log`; at the end
+**Output**: for each capture, the `bag2edex.py` output and `convert.log`; at the end
 `<output>/conversion_summary.json` (source, status, return code, duration, last log lines of each capture).
 
 **Usage**
 
 ```bash
-python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex --list     # only list the captures
-python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex
-python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex --only 9_Loop_closure/loop_closure \
+python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex_old/edex --list     # only list the captures
+python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex_old/edex
+python3 convert_all.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/edex_old/edex --only 9_Loop_closure/loop_closure \
     --extra "--stale-threshold 1.0"
 ```
 
@@ -274,12 +452,13 @@ python3 convert_all.py ~/dotlumen/Captures -o ~/dotlumen/Captures/edex --only 9_
 | `--list` | flag | off | list the captures found and exit |
 | `--skip-existing` | flag | off | skip captures that already have bag_report.json in the output |
 | `--only` | one or more `ONLY` | - | convert only these relative paths |
-| `--workers` | integer | number of CPUs, between 2 and 8 | threads for image encoding, passed to `bag_to_cuvslam.py` |
-| `--extra` | text | `` | extra arguments for bag_to_cuvslam.py |
+| `--workers` | integer | number of CPUs, between 2 and 8 | threads for image encoding, passed to `bag2edex.py` |
+| `--converter` | text | `bag2edex.py` | conversion script, in the folder of `convert_all.py`; `--reference auto` is passed only to `bag2edex.py` |
+| `--extra` | text | `` | extra arguments for the conversion script |
 
 ## merge_rig_edex.py
 
-Merges the per-camera EDEX datasets of a capture (`cam1/` and `cam2/`, produced by `bag_to_cuvslam.py`) into a
+Merges the per-camera EDEX datasets of a capture (`cam1/` and `cam2/`, produced by `bag2edex.py`) into a
 single EDEX rig, so that cuVSLAM can use both cameras together. The per-camera folders are not modified.
 
 **What it does**
@@ -303,7 +482,7 @@ The CAD extrinsic is accurate to a few millimetres; a Kalibr calibration is reco
 **Usage**
 
 ```bash
-python3 merge_rig_edex.py ~/dotlumen/Captures/edex/9_Loop_closure/loop_closure --streams ir
+python3 merge_rig_edex.py ~/dotlumen/Captures/edex_old/edex/9_Loop_closure/loop_closure --streams ir
 python3 merge_rig_edex.py <capture> --streams all --extrinsic -0.040 0 0.051 0 -0.4227 0 0.9063 --tolerance-ms 3
 ```
 
@@ -311,7 +490,7 @@ python3 merge_rig_edex.py <capture> --streams all --extrinsic -0.040 0 0.051 0 -
 
 | Argument | Value | Default | Description |
 |---|---|---|---|
-| `capture` (positional) | text | **required** | folder containing cam1/ and cam2/ (output of bag_to_cuvslam.py) |
+| `capture` (positional) | text | **required** | folder containing cam1/ and cam2/ (output of bag2edex.py) |
 | `-o`, `--output` | text | - | output folder (default &lt;capture&gt;/rig_&lt;streams&gt;) |
 | `--cams` | 2 values | `cam1 cam2` | the two cameras; the first one is the reference |
 | `--streams` | `ir` \| `rgb` \| `all` | `ir` | streams of each camera put in the rig: `ir` (infra1 + infra2), `rgb`, `all` (IR first, then RGB) |
@@ -367,17 +546,19 @@ python3 track_edex_rerun.py <stereo.edex> --mode mono --cameras 0 --save run.rrd
 | `--out-dir` | text | - | save the cuVSLAM output (CSV in the Isaac ROS format + run_info.json) to this folder |
 | `--base-frame` | text | - | frame of the saved poses (default: &lt;cam&gt;_link of the EDEX rig; 'rig' = no conversion) |
 | `--bag` | text | - | source bag for /tf_static (default: from ../bag_report.json) |
-| `--async-sba` | flag | off | async_sba=True (as in real time; default False: deterministic offline run) |
+| `--async-sba` | flag | off | real-time mode: async_sba=True and the real-time tracker mode (`OdometryWithSlamRealtime` / `OdometryOnlyRealtime`); default: synchronous offline run (`*Offline` modes) |
 | `--no-viewer` | flag | off | do not open the Rerun viewer |
+| `--world` | `base` \| `native` | `base` | 3D world frame: 'base' = base frame (--base-frame) at the first pose, z up, the same for every viewer (see view_frames.py); 'native' = cuVSLAM rig at the first frame (OpenCV axes) |
+| `--compare` | one or more `LABEL=FOLDER` | - | overlay the trajectories saved in these folders (odometry.csv / slam_poses.csv of Isaac ROS or of --out-dir); needs --world base |
 
 ## track_bag_rerun.py
 
 Runs cuVSLAM directly on a ROS 2 bag (`.mcap` or `.db3`) and visualizes the run in Rerun, doing in memory what
-`bag_to_cuvslam.py` + `merge_rig_edex.py` + `track_edex_rerun.py` do, without writing images to disk.
+`bag2edex.py` + `merge_rig_edex.py` + `track_edex_rerun.py` do, without writing images to disk.
 
 **What it does**
 
-1. Pass 1: reads image timestamps, `camera_info`, `/tf_static` and the IMU; drops stale messages as `bag_to_cuvslam.py`.
+1. Pass 1: reads image timestamps, `camera_info`, `/tf_static` and the IMU; drops stale messages as `bag2edex.py`.
 2. Builds the rig from `--streams` (`<cam>/<rgb|ir1|ir2>`). The first stream is the reference: it defines the
    frames, their timestamps and the rig origin. Streams of two cameras are connected with `--extrinsic` when
    `/tf_static` does not connect them. The other streams are matched to the reference within `--tolerance-ms`.
@@ -389,9 +570,12 @@ Runs cuVSLAM directly on a ROS 2 bag (`.mcap` or `.db3`) and visualizes the run 
 **Default streams**: Mono -> `<imu-camera>/rgb`; Inertial -> `<imu-camera>/ir1 <imu-camera>/ir2`;
 Multicamera -> `ir1 ir2` of every camera in the bag.
 
-**Note**: frames where only some streams are within the tolerance are passed to cuVSLAM as partial frames
-(e.g. infra1 without infra2), whereas the EDEX created with `--reference ir` and the Isaac ROS node
-(`min_num_images: 2`) contain only complete IR pairs.
+**Incomplete frames**: frames where some stream has no image within `--tolerance-ms` (e.g. infra1 without infra2)
+are dropped in inertial mode by default (`--require-all-streams`), as in the EDEX created with
+`bag2edex.py --reference ir` and in the Isaac ROS node (`min_num_images: 2`); with
+`--no-require-all-streams`, and by default in the other modes, they are passed to cuVSLAM as partial frames.
+`run_info.json` records the setting and the number of frames before and after the check. On `loop_closure` (IR stereo + IMU)
+826 infra1 frames are found, 804 with infra2: the default inertial run uses those 804.
 
 **Usage**
 
@@ -412,6 +596,7 @@ python3 track_bag_rerun.py $B --mode mono --streams cam2/rgb --start 10 --end 40
 | `--imu-camera` | text | `cam2` | camera providing the IMU (inertial mode) |
 | `--extrinsic` | `X` `Y` `Z` `QX` `QY` `QZ` `QW` | `-0.04 0.0 0.0509 0.0 -0.42273 0.0 0.90626` | T_&lt;cam1&gt;_link_from_&lt;cam2&gt;_link (used only if /tf_static does not connect the cameras) |
 | `--link-frame` | text | `{cam}_link` | base frame of each camera in /tf_static |
+| `--require-all-streams`, `--no-require-all-streams` | flag | on in inertial mode, off otherwise | drop the frames where some stream has no image within --tolerance-ms (as the EDEX created with bag2edex.py and the Isaac ROS node, min_num_images). Default: on in inertial mode, off otherwise (partial frames are passed to cuVSLAM) |
 | `--tolerance-ms` | number | `1.0` | maximum offset between the reference and the other streams (cuVSLAM requires &lt;= 1 ms) |
 | `--stale-threshold` | number | `0.5` | discard messages whose stamp-receive offset is more than N s from the median |
 | `--multicam-mode` | `precision` \| `moderate` \| `performance` | `precision` | selection of primary cameras in Multicamera |
@@ -427,8 +612,424 @@ python3 track_bag_rerun.py $B --mode mono --streams cam2/rgb --start 10 --end 40
 | `--verbosity` | integer | `1` | cuvslam.set_verbosity (0-3) |
 | `--out-dir` | text | - | save the cuVSLAM output (CSV in the Isaac ROS format + run_info.json) to this folder |
 | `--base-frame` | text | - | frame of the saved poses (default: &lt;cam&gt;_link of the reference stream; 'rig' = no conversion) |
-| `--async-sba` | flag | off | async_sba=True (as in real time; default False: deterministic offline run) |
+| `--async-sba` | flag | off | real-time mode: async_sba=True and the real-time tracker mode (`OdometryWithSlamRealtime` / `OdometryOnlyRealtime`); default: synchronous offline run (`*Offline` modes) |
 | `--no-viewer` | flag | off | do not open the Rerun viewer |
+| `--world` | `base` \| `native` | `base` | 3D world frame: 'base' = base frame (--base-frame) at the first pose, z up, the same for every viewer (see view_frames.py); 'native' = cuVSLAM rig at the first frame (OpenCV axes) |
+| `--compare` | one or more `LABEL=FOLDER` | - | overlay the trajectories saved in these folders (odometry.csv / slam_poses.csv of Isaac ROS or of --out-dir); needs --world base |
+
+## map_bag.py
+
+Builds a cuVSLAM SLAM map from a ROS 2 bag (`.mcap` or `.db3`) and tests relocalization in that map, simulating a
+tracking loss. The bag is read with the functions of `track_bag_rerun.py` (same streams, rig, synchronization, IMU
+handling and incomplete-frame rule), so the frames are the same as in the `track_bag_rerun.py` runs. No viewer.
+
+Two subcommands:
+
+- `build`: runs cuVSLAM with SLAM on a capture (or on a time range of it), saves the SLAM map (LMDB database) and the
+  reference trajectory in the native frame of the map.
+- `localize`: starts a **new** cuVSLAM session on cuts `[t1, t2]` of a capture and tries to localize it in a saved map,
+  with a prior taken from the reference trajectory before a simulated loss of `t_prev` seconds.
+
+**What `build` does**
+
+1. Offline SLAM run (`OdometryWithSlamOffline`, `Slam.Config(sync_mode=True, max_map_size=0)`): `max_map_size=0` keeps
+   the whole pose graph in the map (the cuVSLAM default, 300, keeps only the last 300 poses).
+2. Saves the map with `Slam.save_map` to `<out-dir>/map/` (`data.mdb`).
+3. Writes `reference_slam.csv`: the final SLAM poses of every frame (`get_all_slam_poses`, after loop closures and
+   pose graph optimization) as rig poses `world_from_rig` in the **native map frame** (cuVSLAM rig = first stream
+   camera, OpenCV axes x right, y down, z forward). The `localize` results are compared with these poses directly, without alignment.
+4. Writes `odometry_native.csv` (odometry poses, same frame) and `keyframes.csv` (nodes of the pose graph).
+5. Inertial mode: the gravity estimated at each frame (rig frame, `get_last_gravity`) is rotated by the final pose of
+   the frame and averaged: the gravity direction in the map frame is saved in `map_info.json` (`gravity_map`).
+6. Writes the standard run output (`run_output.py`, as `track_bag_rerun.py --out-dir`) in `<out-dir>/run/`.
+
+**What `localize` does**
+
+For each `t1` (given with `--t1` or sampled every `--t1-step` s) and each `t_prev` (`--t-prev`), one query:
+
+1. A new tracker with SLAM is created; the frames of the cut `[t1, t1 + --duration]` are fed to it (IMU from 0.1 s before
+   `t1`).
+2. Prior = last reference pose with timestamp `<= t1 - t_prev` (the last pose tracked before a loss of `t_prev` seconds;
+   `t_prev = 0` is a perfect prior).
+3. Up to `--attempts` (N) single-frame localization attempts, one every `--attempt-every` s starting from the first
+   tracked frame of the cut. The prior of attempt k is the last tracked pose composed with the odometry of the new
+   session since `t1` (`T_last · O_first⁻¹ · O_k`); with `--prior-gravity` (inertial mode), its roll and pitch are
+   replaced with those given by the gravity estimated by the new session (heading and position unchanged), when that
+   gravity is available.
+4. After a successful localization the session keeps tracking until `t2`; its SLAM poses, now in the map frame, are
+   compared frame by frame with `reference_slam.csv` (`post_localization.csv`). When all attempts fail the query stops,
+   unless `--track-after-failure` is given.
+5. Errors are computed without any alignment, in the map frame: translation (m), rotation (deg) and vertical error
+   (along `gravity_map`). A localization is a **true positive** when its error is within `--thr-t` (0.3 m) and
+   `--thr-r` (10 deg), otherwise a **false positive**.
+
+**How cuVSLAM `localize_in_map` works** (`Slam.localize_in_map(folder, timestamp_ns, guess_pose, images, settings,
+start_cb, finish_cb)`, cuVSLAM 17.0.0)
+
+- It uses **one frame** (the images of all the cameras of the rig at `timestamp_ns`) and **requires a prior**
+  (`guess_pose`, rig pose in the map frame). There is no global place recognition: the map is searched only around the prior.
+- `Slam.LocalizationSettings` defines a grid around the prior: horizontal radius along rig x and z
+  (`horizontal_search_radius`, `horizontal_step`), vertical radius along rig y (`vertical_search_radius`, `vertical_step`),
+  and a full 360 deg rotation around rig y (`angular_step_rads`). The candidates are tried starting from the closest one to
+  the prior; the first one that is solved is returned.
+- Maximum number of candidates: `(2R/h + 1)² × (2V/v + 1) × (360/angle step)`, with R, V the horizontal and vertical radius and h, v
+  the steps. With the defaults (4 m, 1 m, 0.5 m, 0.25 m, 10 deg): 17² × 9 × 36 = 93636.
+- With `sync_mode=True` the call returns after `finish_cb(pose, message)` has run (`pose` is `None` on failure).
+- On success, the saved map **replaces** the map of the session: the following SLAM poses are in the map frame.
+- The search radius is along the rig axes: if the prior has a wrong roll/pitch, the "horizontal" plane of the grid is
+  tilted; `--prior-gravity` corrects this when the new session has a gravity estimate.
+
+**Usage**
+
+```bash
+B=~/dotlumen/Captures/mcap/9_Loop_closure/loop_closure
+M=~/dotlumen/VRHealth_Challenge13/results/maps/cam2_stereo_imu/loop_closure
+
+# build the map on the whole capture (cam2 IR stereo + IMU)
+python3 map_bag.py build $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --out-dir $M
+
+# short test: 2 cuts x 4 t_prev = 8 queries
+python3 map_bag.py localize $B --map $M --t1 20 35 --out-dir $M/localize_test
+
+# default sampling: t1 every 5 s, t_prev 0/1/3/5 s, 10 s cuts, up to 16 attempts every 0.25 s
+python3 map_bag.py localize $B --map $M --t1-step 5 --t-prev 0 1 3 5 --duration 10 \
+    --attempts 16 --attempt-every 0.25 --out-dir $M/localize
+
+# in Docker
+NO_X11=1 docker/run.sh map_bag.py build $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --out-dir $M
+
+# watch the queries live in Rerun at real-time speed (docker/run.sh shares the display), also saving the recording
+docker/run.sh map_bag.py localize $B --map $M --t1 20 35 --out-dir $M/localize_test --viewer --pace 1 \
+    --save $M/localize_test/localize.rrd
+# or only save it and open it later: rerun $M/localize_test/localize.rrd
+python3 map_bag.py localize $B --map $M --t1 20 35 --out-dir $M/localize_test --save $M/localize_test/localize.rrd
+```
+
+On `loop_closure` (cam2 IR stereo + IMU, RTX 4070 Ti, Docker) `build` takes about 25 s (804 frames, 240 keyframes,
+88.6 MB map) and the default `localize` sampling (9 values of t1 × 4 t_prev = 36 queries) about 75 s.
+
+**Arguments and options of `build`**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `bag` (positional) | text | **required** | bag folder (.mcap/.db3) or single file |
+| `--out-dir` | text | **required** | output folder (map/, reference_slam.csv, map_info.json, run/) |
+| `--mode` | `multicamera` \| `inertial` \| `mono` | `inertial` | cuVSLAM odometry mode |
+| `--streams` | one or more `STREAMS` | - | streams &lt;cam&gt;/&lt;rgb\|ir1\|ir2&gt;; the first one is the rig origin (as track_bag_rerun.py). Default: mono -&gt; &lt;imu-camera&gt;/rgb, inertial -&gt; &lt;imu-camera&gt;/ir1 ir2, multicamera -&gt; ir1 ir2 of all cameras |
+| `--imu-camera` | text | `cam2` | camera providing the IMU (inertial mode) |
+| `--extrinsic` | `X` `Y` `Z` `QX` `QY` `QZ` `QW` | `-0.04 0.0 0.0509 0.0 -0.42273 0.0 0.90626` | T_&lt;cam1&gt;_link_from_&lt;cam2&gt;_link (used only if /tf_static does not connect the cameras) |
+| `--link-frame` | text | `{cam}_link` | base frame of each camera in /tf_static |
+| `--require-all-streams`, `--no-require-all-streams` | flag | on in inertial mode, off otherwise | drop the frames where some stream has no image within --tolerance-ms |
+| `--tolerance-ms` | number | `1.0` | maximum offset between the reference and the other streams |
+| `--stale-threshold` | number | `0.5` | discard messages whose stamp-receive offset is more than N s from the median |
+| `--multicam-mode` | `precision` \| `moderate` \| `performance` | `precision` | selection of primary cameras in Multicamera |
+| `--rectified` | flag | off | rectified_stereo_camera=True (rectified IR pairs) |
+| `--max-map-size` | integer | `0` | Slam.Config.max_map_size (poses in the pose graph, 0 = unlimited; cuVSLAM default 300) |
+| `--start` | number | - | map range start, seconds from the beginning |
+| `--end` | number | - | map range end, seconds from the beginning |
+| `--max-frames` | integer | - | maximum number of frames to process |
+| `--verbosity` | integer | `0` | cuvslam.set_verbosity (0-3) |
+
+**Arguments and options of `localize`**
+
+The rig configuration (mode, streams, extrinsic, tolerance, rectified, ...) is read from `map_info.json` of the map.
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `bag` (positional) | text | **required** | query bag folder (.mcap/.db3) or single file; for now it must be the capture of the map |
+| `--map` | text | **required** | folder written by `build` |
+| `--out-dir` | text | `<map>/localize` | output folder |
+| `--t1` | one or more numbers | sampled with `--t1-step` | start times of the cuts (s from the beginning) |
+| `--t1-step` | number | `5.0` | sampling step of t1 (s) |
+| `--margin` | number | `2.0` | t1 - max(t_prev) at least this many seconds after the start of the map (sampling only) |
+| `--duration` | number | `10.0` | length of each cut t2 - t1 (s) |
+| `--t-prev` | one or more numbers | `0 1 3 5` | simulated tracking loss: prior = reference pose at t1 - t_prev |
+| `--attempts` | integer | `16` | maximum single-frame localization attempts (N) |
+| `--attempt-every` | number | `0.25` | seconds between attempts |
+| `--track-after-failure` | flag | off | keep tracking until t2 when all the attempts failed (default: stop) |
+| `--prior-gravity`, `--no-prior-gravity` | flag | on | take roll/pitch of the prior from the gravity estimated by the new session (inertial) |
+| `--h-radius` | number | `4.0` | horizontal search radius (m, rig x and z) |
+| `--v-radius` | number | `1.0` | vertical search radius (m, rig y) |
+| `--h-step` | number | `0.5` | horizontal step (m) |
+| `--v-step` | number | `0.25` | vertical step (m) |
+| `--angle-step-deg` | number | `10.0` | rotation step around rig y (deg) |
+| `--thr-t` | number | `0.3` | true positive threshold, translation (m) |
+| `--thr-r` | number | `10.0` | true positive threshold, rotation (deg) |
+| `--viewer` | flag | off | show the queries live in the Rerun viewer (map, reference, attempts, tracking) |
+| `--save` | text | - | save the Rerun recording to this .rrd file (also together with `--viewer`) |
+| `--pace` | number | `0.0` | with --viewer: play the cuts at this speed (1 = real time; 0 = as fast as possible) |
+| `--image-every` | integer | `1` | send the images to Rerun every N frames |
+| `--verbosity` | integer | `0` | cuvslam.set_verbosity (0-3) |
+
+When `--t1` is not given, t1 goes from `max(margin, start of the map + max(t_prev) + margin)` to `end of the capture - duration`
+in steps of `--t1-step`.
+
+**Output of `build`** (`--out-dir`)
+
+| File | Content |
+|---|---|
+| `map/` | cuVSLAM SLAM map (LMDB, `data.mdb`), input of `localize` |
+| `reference_slam.csv` | `timestamp_ns, tx, ty, tz, qx, qy, qz, qw`: final SLAM rig pose of every frame in the native map frame (reference of `localize`) |
+| `odometry_native.csv` | same columns: odometry rig poses of the build run, same frame |
+| `keyframes.csv` | `id, tx, ty, tz, qx, qy, qz, qw`: nodes (keyframes) of the final pose graph |
+| `map_landmarks.csv` | `id, x, y, z, weight`: landmarks of the SLAM map (`Slam.DataLayer.Map`) in the map frame, shown by the `localize` viewer |
+| `map_info.json` | configuration (rig, streams, `max_map_size`), frames, lost frames, first/last timestamps, bag start time, number of reference poses and keyframes, `gravity_map` (unit gravity direction in the map frame, inertial mode only), map size, `save_map` time, cuVSLAM version, wall time, `run_summary` |
+| `run/` | standard run output of `run_output.py` (odometry.csv, slam_poses.csv, slam_online.csv, loop_closures.csv, status.csv, slam_metrics.csv, run_info.json), poses of `<cam>_link`, comparable with `compare_runs.py` |
+
+**Output of `localize`** (`--out-dir`)
+
+| File | Content |
+|---|---|
+| `queries.csv` | one row per query: t1, t_prev, t2, prior timestamp and gap, prior error (translation, rotation, vertical), `localized`, `attempt_ok`, number of attempts, localization timestamp and delay from t1, localization error, `within_threshold`, tracker creation time, first-attempt time, total and successful attempt time (ms), post-localization statistics (frames, RMSE, max, final translation and rotation error), lost frames |
+| `attempts.csv` | one row per attempt: timestamp, time from t1, `gravity_used`, prior error, `ok`, time (ms), probe statistics (`probes`, `probes_solved`, `best_weight`; empty with cuVSLAM 17.0.0, which has no `get_localizer_probes`), error of the result, message of `finish_cb` |
+| `post_localization.csv` | `query, timestamp_ns, t_from_loc_s, tx..qw, err_t_m, err_r_deg`: SLAM poses of the new session after localization and their error vs the reference |
+| `localize_info.json` | map, query bag, t1 values, t_prev, duration, attempts, search settings and maximum number of candidates, thresholds, cuVSLAM version, `summary`: for each t_prev, the number of queries and, for N = 1, 2, 4, ... up to `--attempts`, localized / true positive / false positive / not localized and TP rate within N attempts; median localization error, delay, successful attempt time, total localization time and prior error |
+
+**Rerun view of `localize`** (`--viewer`, `--save`)
+
+The map and the queries are shown in one 3D view, in the native map frame, seen from above along the gravity of the map:
+
+| Element | Color | Content |
+|---|---|---|
+| `world/map/landmarks` | grey | landmarks of the map (`map_landmarks.csv`; missing for maps built before this file existed: rebuild the map) |
+| `world/map/reference` | purple | reference trajectory of the map (`reference_slam.csv`) |
+| `world/map/keyframes` | blue | keyframes of the pose graph |
+| `world/query/reference_cut` | yellow | reference trajectory of the current cut [t1, t2] |
+| `world/query/last_pose` | orange arrow | last pose before the loss (reference at t1 - t_prev) |
+| `world/query/track_before` | orange | new session before localization: last pose composed with the new-session odometry (what the system believes) |
+| `world/query/search`, `attempts/<k>/prior` | yellow box, arrow | search box (`--h-radius`, `--v-radius`, along the rig axes of the prior) and prior of the attempt |
+| `world/query/attempts/<k>/result` | green / red arrow | result of a successful attempt: green = true positive, red = false positive (cyan: no reference pose) |
+| `world/query/track_after` | green / red | SLAM poses of the new session after localization, in the map frame |
+| `world/query/reference_now` | purple point | reference pose of the current frame (where the rig should be) |
+| `world/rig` | camera | current pose shown with its camera images and the landmarks tracked by the new session |
+
+Arrows point along the rig z axis (camera forward). Left side: the camera images with the tracked points, the translation
+and rotation error after localization and an event log (one line per query and attempt; false positives at ERROR level,
+failed attempts at WARN level). Timelines: `step` (default; all the queries one after the other, 14 steps/s = about real
+time), `query` and `time` (capture time; the cuts of different queries overlap). With `--viewer` the data are sent while the
+queries run; `--pace 1` slows the run down to real time. The viewer stays open at the end (close it to exit, as in the
+tracking scripts).
+
+**Limits**
+
+- The query capture must be the map capture (otherwise there are no reference poses): the same images that built the
+  map are used to localize, so the results are an **optimistic upper bound** of relocalization on a new visit.
+- The times are measured offline (synchronous run, the frames are already decoded): they are the **compute cost** of
+  `localize_in_map` and not the real-time latency of a live system.
+- The first attempt is made on the first frame of the new session, when the session has no gravity estimate yet:
+  `--prior-gravity` only affects the later attempts.
+- The search covers only rotations around rig y and a box around the prior: priors with large roll/pitch errors or
+  outside the radius can fail or give false positives.
+- cuVSLAM runs are not exactly repeatable: on the same input the localization error changes slightly between runs, and
+  much more in ambiguous places (on `loop_closure`, over 6 repeated runs of the 4 queries at t1 = 35 s, the rotation error
+  ranged from about 2 to 87 deg; the query with t_prev = 5 s alone ranged from 2 to 55 deg, once within the threshold). Repeat the queries before drawing conclusions from single cases.
+
+## track_edex_modes.py
+
+Runs cuVSLAM (PyCuVSLAM) on one EDEX written by `bag2edex_modes.py`, without viewer, and saves the output through `run_output.py`.
+It adds the RGBD and Multisensor modes to those of `track_edex_rerun.py`; depth images are read from the `depth` entries of
+`frame_metadata.jsonl`. The poses are converted with `T_rig_from_base_opencv` of `calibration.json`, so the bag is not needed.
+
+```bash
+E=~/dotlumen/Captures/edex/9_Loop_closure/loop_closure
+python3 track_edex_modes.py $E/rgbd_ir_cam2/stereo.edex --mode rgbd --slam --out-dir runs/rgbd_ir_cam2
+python3 track_edex_modes.py $E/stereo_imu_cam2/stereo.edex --mode inertial --rectified --slam --out-dir runs/stereo_imu_cam2
+python3 track_edex_modes.py $E/multisensor_all/stereo.edex --mode multisensor --slam --out-dir runs/multisensor_all
+```
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `edex` (positional) | text | **required** | stereo.edex file |
+| `--mode` | `mono` \| `multicamera` \| `inertial` \| `rgbd` \| `multisensor` | **required** | cuVSLAM odometry mode |
+| `--cameras` | one or more `CAMERAS` | all | EDEX cameras to use |
+| `--no-imu` | flag | off | Multisensor: ignore the IMU of the EDEX |
+| `--rectified` | flag | off | rectified_stereo_camera=True (pinhole stereo pairs in consecutive positions) |
+| `--slam` | flag | off | also enable SLAM |
+| `--max-frames` | integer | - | maximum number of frames |
+| `--out-dir` | text | **required** | output folder (Isaac ROS CSV format + run_info.json) |
+| `--base-frame` | text | - | frame of the saved poses (default: `base_frame` of `calibration.json`) |
+| `--bag` | text | - | source bag for /tf_static when `calibration.json` has no transform |
+| `--verbosity` | integer | `1` | cuvslam.set_verbosity (0-3) |
+
+## bag_output_rerun.py
+
+Shows in Rerun a cuVSLAM run already done, without ROS and without running cuVSLAM. The input is one of:
+
+- the bag that recorded the output topics of Isaac ROS (`isaac_ros_visual_slam`), for example `<run>/bag` written by
+  `isaac_ros_5/launch/slam_cam2.sh`;
+- a folder with the trajectories of a saved run: the CSV files of Isaac ROS (`extract_paths.py`) or the `--out-dir` of
+  `track_edex_rerun.py` and `track_bag_rerun.py`.
+
+The rest of this section describes the bag; the saved trajectories are described after the steps.
+
+**What it does**
+
+1. Reads the ROS 2 message definitions stored in the MCAP file and decodes every message type with them, including
+   `isaac_ros_visual_slam_interfaces/VisualSlamStatus`. For `.db3` bags, which do not store the definitions, built-in
+   definitions of the common types are used (`Odometry`, `Path`, `PointCloud2`, `PoseArray`, `PoseStamped`, `TFMessage`).
+2. Places every message on the `time` timeline by its header stamp, relative to the first odometry message.
+3. Keeps the latest transforms of `/tf` and `/tf_static` and expresses everything in the world frame (default: the
+   `frame_id` of the odometry, e.g. `odom`); for example `slam_path`, published in `map`, is moved to `odom` with the
+   `map -> odom` transform.
+4. Logs (same layout and entity names as `track_bag_rerun.py`):
+
+| Entity | Content |
+|---|---|
+| `world/odom_trajectory` | odometry trajectory (line) |
+| `world/rig` | current pose of the odometry child frame (e.g. `cam2_link`) |
+| `world/rig/<cam>_<role>` | camera frustum and image, with `--input-bag` |
+| `world/vo_path`, `world/slam_path` | last `nav_msgs/Path` published; `slam_path` is the trajectory after the loop closure corrections |
+| `world/vis/<name>` | point clouds and pose arrays of `/visual_slam/vis/*` (landmarks, observations, loop closures, pose graph) |
+| `stats/status/<field>` | numeric fields of `/visual_slam/status` (`vo_state`, `integrator_state`, ...) |
+| `stats/timing/<field>` | execution times of `/visual_slam/status` |
+| `stats/points/<name>` | number of points of each point cloud topic |
+
+5. With `--input-bag`, reads `camera_info` and `/tf_static` of the bag played during the run to place the cameras on
+   the rig and logs their images on the same timeline, so they line up with the output of cuVSLAM.
+
+The 3D view uses the common frame of the viewers (see below): with `--compare` the trajectories of PyCuVSLAM runs
+saved with `--out-dir` are overlaid on the Isaac ROS run.
+
+**From a folder of saved trajectories** it reads `odometry.csv` and `slam_poses.csv` (at least one is needed) and, if
+present, `status.csv` and `run_info.json`:
+
+| Entity | Content |
+|---|---|
+| `world/odom_trajectory`, `world/rig` | odometry trajectory and current pose, on the `time` timeline |
+| `world/slam_path` | final SLAM trajectory (static), starting at the origin as the overlays of `--compare` |
+| `world/rig/<cam>_<role>` | camera frustum and image, with `--input-bag` |
+| `stats/status`, `stats/timing`, `stats/points` | columns of `status.csv` |
+
+With `--input-bag`, the frame of the poses is read from `run_info.json` (`--out-dir`). Isaac ROS CSV files do not have it:
+use `--streams`, and `<cam>_link` of the first stream is taken as that frame. Point clouds and pose graph (`world/vis/*`)
+exist only in the bag.
+
+Note that `world/slam_path` read from a bag is moved to `odom` with the latest `map -> odom` transform, so it ends on the
+odometry instead of starting at the origin; from a CSV folder it starts at the origin.
+
+**Usage**
+
+```bash
+R=<slam_runs>/cam2_stereo_imu/loop_closure
+python3 bag_output_rerun.py $R/bag
+python3 bag_output_rerun.py $R/bag --input-bag ~/dotlumen/Captures/original/9_Loop_closure/loop_closure \
+    --streams cam2/ir1 cam2/ir2 --save $R/isaac_ros.rrd
+# saved trajectories (Isaac ROS CSV or --out-dir)
+python3 bag_output_rerun.py ~/dotlumen/VRHealth_Challenge13/results/slam_csv/cam2_stereo_imu/loop_closure
+```
+
+**Arguments and options**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `output_bag` (positional) | text | **required** | bag with the cuVSLAM output topics (folder, .mcap or .db3), or folder with the CSV files of a saved run (odometry.csv, slam_poses.csv) |
+| `--input-bag` | text | - | input bag of the run, for images and calibration |
+| `--streams` | one or more `STREAMS` | - | images to show, &lt;cam&gt;/&lt;rgb\|ir1\|ir2&gt; (default with --input-bag: &lt;cam&gt;/ir1, where &lt;cam&gt; is the prefix of the odometry child frame, e.g. cam2_link -&gt; cam2) |
+| `--odometry-topic` | text | `/visual_slam/tracking/odometry` |  |
+| `--status-topic` | text | `/visual_slam/status` |  |
+| `--world-frame` | text | - | frame of the 3D view (default: frame_id of the odometry, e.g. odom) |
+| `--image-every` | integer | `1` | log one image every N |
+| `--cloud-every` | integer | `1` | log one message every N for each point cloud topic |
+| `--save` | text | - | save to a .rrd file instead of opening the viewer |
+| `--world` | `base` \| `native` | `base` | 3D world frame: 'base' = odometry child frame (e.g. cam2_link) at the first pose, the same for every viewer (see view_frames.py); 'native' = world frame of Isaac ROS (e.g. odom) |
+| `--compare` | one or more `LABEL=FOLDER` | - | overlay the trajectories saved in these folders (odometry.csv / slam_poses.csv of Isaac ROS or of --out-dir of the PyCuVSLAM scripts); needs --world base |
+
+## Common 3D frame of the viewers (view_frames.py)
+
+`track_edex_rerun.py`, `track_bag_rerun.py` and `bag_output_rerun.py` show the 3D view in the same frame
+(`--world base`, default): the base frame (e.g. `cam2_link`: x forward, y left, z up) at the first pose of the run.
+It is the convention of the saved CSV files (`run_output.py`, `extract_paths.py`): the first pose is the identity.
+
+| Tool | Native world frame (`--world native`) | Conversion to the common frame |
+|---|---|---|
+| PyCuVSLAM (`track_*_rerun.py`) | first camera of the rig at the first frame, OpenCV axes (z forward, y down) | `inv(W_b0) @ W_b`, with `W_b = world_from_rig @ T_rig_from_base` (`T_rig_from_base` from `/tf_static`) |
+| Isaac ROS (`bag_output_rerun.py`) | `odom` (z up, origin and heading set by the node) | `inv(T_odom_base0) @ T_odom_base` |
+
+Landmarks, gravity and cameras are moved to the same frame. `--compare label=folder` (repeatable) overlays the
+trajectories saved in other run folders (`odometry.csv`, `slam_poses.csv` of Isaac ROS or of `--out-dir`), re-anchored
+at their pose closest to the first timestamp of the current run, so that runs starting a few frames apart start at the
+same point. Different recordings cannot be overlaid in one Rerun view: `--compare` puts the other runs in the same
+recording, under `world/compare/<label>/`.
+
+```bash
+python3 bag_output_rerun.py <isaac run>/bag --input-bag <capture> \
+    --compare pycuvslam=~/dotlumen/VRHealth_Challenge13/results/pycuvslam/bag/cam2_stereo_imu/loop_closure
+python3 track_bag_rerun.py <capture> --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --slam \
+    --compare isaac_ros=~/dotlumen/VRHealth_Challenge13/results/slam_csv/cam2_stereo_imu/loop_closure
+```
+
+## check_depth_sync.py
+
+Diagnostic tool: for every capture of a folder (same rules as `convert_all.py`) and every camera it reads only the
+message headers of RGB, infra1, native depth and aligned depth, and reports for each pair the offset of each message
+from the nearest message of the other topic (share of identical stamps, median, 95th percentile, maximum, share within
+1, 2, 5, 8, 10 ms). Pairs: aligned -> rgb, aligned -> depth, rgb -> depth, rgb -> aligned, depth -> ir1.
+
+```bash
+python3 check_depth_sync.py ~/dotlumen/Captures/original -o ~/dotlumen/Captures/original/depth_sync.json
+```
+
+**Arguments and options**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `root` (positional) | text | **required** | captures folder (e.g. ~/dotlumen/Captures) |
+| `-o`, `--output` | text | `depth_sync.json` | JSON file with all the statistics |
+| `--only` | one or more `ONLY` | - | only these relative capture paths |
+
+## check_depth_alignment.py
+
+Checks the depth alignment computed by `bag2edex.py` (`align_depth_to_color`) against the aligned depth recorded by the
+realsense node, on bags that have both `aligned_depth_to_color` and `depth/image_rect_raw`. On a sample of frames with
+the same stamp on both topics it computes the alignment with both RGB distortion models (`plumb_bob` and `inverse`) and
+reports, as medians over the frames: share of pixels with the same value, share within 1% or 2 cm, median absolute
+difference, and pixels with depth in only one of the two images. `--save-dir` writes the recorded, computed and
+difference images.
+
+```bash
+python3 check_depth_alignment.py ~/dotlumen/Captures/original/9_Loop_closure/loop_closure --cam cam2 --frames 20 -o align_cam2.json
+```
+
+**Arguments and options**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `bag` (positional) | text | **required** |  |
+| `--cam` | text | `cam2` |  |
+| `--frames` | integer | `20` | number of frames sampled over the bag |
+| `--depth-scale-factor` | number | `1000.0` |  |
+| `--save-dir` | text | - | write recorded / computed / difference images here |
+| `-o`, `--output` | text | - | JSON file with the results |
+
+## ir_exposure_stats.py
+
+Measures the exposure of the IR images of an EDEX capture written by `bag2edex.py` / `bag2edex_modes.py`. It reads
+every image in `images/cam1/infra1`, `images/cam1/infra2`, `images/cam2/infra1` and `images/cam2/infra2` (PNG or JPG)
+and writes one CSV row per image with: median, mean, 5th and 95th percentile of the pixel intensity, share of saturated
+pixels (>= 250) and share of dark pixels (<= 5). Image file names are frame indices, so the timestamp is looked up in
+the `frame_metadata.jsonl` files of the mode subfolders (left empty if not found). 16-bit images are scaled to 0-255
+so that the thresholds stay comparable, and a note reports how many there were. Images are processed in parallel.
+
+```bash
+python3 ir_exposure_stats.py ~/dotlumen/Captures/edex/9_Loop_closure/loop_closure_2 \
+    -o ~/dotlumen/VRHealth_Challenge13/results/ir_exposure/loop_closure_2_ir_stats.csv
+```
+
+**Arguments and options**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `capture_dir` (positional) | text | **required** | EDEX capture folder (containing `images/` and the mode subfolders) |
+| `-o`, `--out` | text | `<capture>_ir_stats.csv` | output CSV (in the current folder by default) |
+| `-j`, `--jobs` | integer | number of CPUs | parallel worker processes |
+
+**Output columns**: `capture`, `camera` (`cam1_infra1`, ...), `file`, `timestamp_ns`, `bit_depth`, `median`, `mean`,
+`p5`, `p95`, `frac_sat_ge250`, `frac_dark_le5`.
+
+**Reading the results**: on a correctly exposed indoor capture (`loop_closure`) the per-frame medians spread
+between about 25 and 240 (median 105-110 on cam1, 155-160 on cam2) with about 1% (cam1) to 11% (cam2) saturated
+pixels. On `loop_closure_2` every frame of all four IR streams has median 255 and more than 93% saturated pixels:
+the IR images carry no texture, so IR-based cuVSLAM modes cannot track on that capture.
 
 ## run_output.py
 
@@ -498,7 +1099,7 @@ reference of the top-view and height plots.
 
 Reduces a ROS 2 bag to the topics needed by cuVSLAM and converts it to MCAP with internal zstd compression,
 using `rosbags-convert`. Then checks that the reduced bag can still be converted to EDEX
-(`bag_to_cuvslam.py --dry-run`) and prints the size before and after.
+(`bag2edex.py --dry-run`) and prints the size before and after.
 
 **Topics kept** (for `cam1` and `cam2`): `color/image_raw`, `color/camera_info`, `infra1/image_rect_raw`,
 `infra1/camera_info`, `infra2/image_rect_raw`, `infra2/camera_info`, `aligned_depth_to_color/image_raw`,
@@ -508,8 +1109,8 @@ at the top of the script to change them.
 **Details**
 
 - `--compress zstd --compress-mode storage` is used: the MCAP chunks are compressed internally, which
-  `bag_to_cuvslam.py` and Rerun can read. The rosbags default (`file`) would produce a `.mcap.zstd` file, and
-  `message` would compress every message: neither can be read by `bag_to_cuvslam.py`.
+  `bag2edex.py` and Rerun can read. The rosbags default (`file`) would produce a `.mcap.zstd` file, and
+  `message` would compress every message: neither can be read by `bag2edex.py`.
 - Bags whose `metadata.yaml` points to a `.db3` with a different name than the file present (e.g. `low_detail_0.db3`
   instead of `low_detail_0-003.db3`) are opened through a temporary folder with a link from the expected name
   to the real file; the original bag is not modified.
@@ -519,7 +1120,7 @@ at the top of the script to change them.
 
 ```bash
 ./db3_to_mcap.sh <source bag folder> <destination folder>
-./db3_to_mcap.sh ~/dotlumen/Captures/10_Low_feature/low_detail_3 ~/dotlumen/Captures/mcap/10_Low_feature/low_detail_3
+./db3_to_mcap.sh ~/dotlumen/Captures/original/10_Low_feature/low_detail_3 ~/dotlumen/Captures/mcap/10_Low_feature/low_detail_3
 ```
 
 **Arguments**
@@ -543,9 +1144,9 @@ topics), `skipped`, `destination exists`.
 
 ```bash
 ./all_db3_to_mcap.sh [options] [captures folder]
-./all_db3_to_mcap.sh -l ~/dotlumen/Captures                   # only list the captures
-./all_db3_to_mcap.sh -k low_detail_3 ~/dotlumen/Captures      # one capture
-./all_db3_to_mcap.sh -o /data/mcap -s ~/dotlumen/Captures     # other output folder, skip done ones
+./all_db3_to_mcap.sh -l ~/dotlumen/Captures/original                   # only list the captures
+./all_db3_to_mcap.sh -k low_detail_3 ~/dotlumen/Captures/original      # one capture
+./all_db3_to_mcap.sh -o /data/mcap -s ~/dotlumen/Captures/original     # other output folder, skip done ones
 ```
 
 **Arguments and options**
@@ -565,7 +1166,7 @@ topics), `skipped`, `destination exists`.
 
 # File formats
 
-## EDEX (bag_to_cuvslam.py, merge_rig_edex.py)
+## EDEX (bag2edex.py, bag2edex_modes.py, merge_rig_edex.py)
 
 | File | Content |
 |---|---|
@@ -593,16 +1194,17 @@ identity, as in the Isaac ROS output).
 
 | File | Written by | Content |
 |---|---|---|
-| `bag_report.json` | `bag_to_cuvslam.py` | per topic: count, rate, gaps, estimated losses; per camera: reference, frames, matches, RGB-IR offsets, image quality, calibration; dropped stale messages |
-| `sync.csv` | `bag_to_cuvslam.py`, `merge_rig_edex.py` | per frame: timestamp of each stream and offset from the reference |
+| `bag_report.json` | `bag2edex.py` | per topic: count, rate, gaps, estimated losses; per camera: reference, frames, matches, RGB-IR offsets, image quality, calibration; dropped stale messages |
+| `sync.csv` | `bag2edex.py`, `merge_rig_edex.py` | per frame: timestamp of each stream and offset from the reference |
 | `rig_calibration.json` | `merge_rig_edex.py` | extrinsic used, rig frame, transform of each camera, predicted stereo pairs, IMU transform |
 | `conversion_summary.json` | `convert_all.py` | per capture: source, status, return code, duration, log |
 | `conversion_summary.tsv` | `all_db3_to_mcap.sh` | per capture: source, status, duration, size before and after |
 | `report.md`, `metrics.json`, `pairs.csv` | `compare_runs.py` | comparison tables and metrics |
+| `<capture>_ir_stats.csv` | `ir_exposure_stats.py` | per IR image: intensity median, mean, p5, p95, saturated and dark pixel shares |
 
 # Conventions and notes
 
-- **Timestamps**: the header stamps of the messages are used by default (`--time receive` in `bag_to_cuvslam.py` uses
+- **Timestamps**: the header stamps of the messages are used by default (`--time receive` in `bag2edex.py` uses
   the bag receive time). cuVSLAM uses the timestamp of camera 0 for the whole frame and expects the cameras of a frame
   to be within 1 ms.
 - **Axes**: the Python API of cuVSLAM and the rig poses use OpenCV axes (x right, y down, z forward). EDEX files store
@@ -614,5 +1216,6 @@ identity, as in the Isaac ROS output).
   The default noise parameters are those of the Isaac ROS launch files.
 - **Rectified images**: the RealSense IR topics are rectified (`image_rect_raw`); `--rectified` sets
   `rectified_stereo_camera`, as `rectified_images: True` in the Isaac ROS launch files.
-- **Determinism**: the tracking scripts run with `async_sba=False` by default (offline, repeatable); `--async-sba`
-  reproduces the asynchronous bundle adjustment of a real-time run.
+- **Determinism**: the tracking scripts run with `async_sba=False` by default (offline tracker mode, repeatable);
+  `--async-sba` selects the real-time tracker mode with asynchronous bundle adjustment, as in a real-time run
+  (frames are still fed as fast as possible, not at the bag rate).

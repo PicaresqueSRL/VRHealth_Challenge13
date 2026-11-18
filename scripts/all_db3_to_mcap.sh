@@ -16,7 +16,7 @@
 #     -k PATTERN    convert only captures whose relative path contains PATTERN (repeatable)
 #
 # Example:
-#   ./all_db3_to_mcap.sh -o ~/dotlumen/Captures_mcap ~/dotlumen/Captures
+#   ./all_db3_to_mcap.sh -o ~/dotlumen/Captures/mcap ~/dotlumen/Captures/original
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
