@@ -78,8 +78,8 @@ python3 track_bag_rerun.py $B --mode inertial --streams cam2/ir1 cam2/ir2 --rect
 The Isaac ROS run of the same bag is in `results/slam_csv/cam2_stereo_imu/loop_closure`.
 Steps 2 and 3 use the same cuVSLAM library and the same frames, so any difference between them comes
 from the input format; differences from the Isaac ROS run also include the cuVSLAM version of the
-Isaac ROS node, real-time playback and its parameters (`--async-sba` reproduces the asynchronous
-bundle adjustment of a real-time run).
+Isaac ROS node, real-time playback and its parameters (`--async-sba` selects the real-time tracker mode,
+with the asynchronous bundle adjustment of a real-time run).
 
 ## Comparing the runs
 

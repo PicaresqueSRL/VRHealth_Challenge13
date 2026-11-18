@@ -21,6 +21,7 @@ messages are decoded by `bag2edex.py`.
    - merge_rig_edex.py
    - track_edex_rerun.py
    - track_bag_rerun.py
+   - map_bag.py
    - track_edex_modes.py
    - bag_output_rerun.py
    - view_frames.py (common 3D frame of the viewers)
@@ -44,6 +45,7 @@ messages are decoded by `bag2edex.py`.
 | `merge_rig_edex.py` | Python | Merges the cam1 and cam2 EDEX datasets into a single multi-camera rig, using the extrinsic between the two cameras (default: from the CAD of the mount) |
 | `track_edex_rerun.py` | Python | Runs cuVSLAM (PyCuVSLAM) on an EDEX dataset, shows the run in Rerun and optionally saves the output |
 | `track_bag_rerun.py` | Python | Runs cuVSLAM directly on a ROS 2 bag, without creating an EDEX and without writing images to disk; shows the run in Rerun and optionally saves the output |
+| `map_bag.py` | Python | Builds a cuVSLAM SLAM map from a bag (`build`) and tests relocalization in it (`localize`): new session on cuts of the capture, prior from the pose before a simulated tracking loss, errors in the map frame |
 | `track_edex_modes.py` | Python | Runs cuVSLAM without viewer on an EDEX of `bag2edex_modes.py`, in any odometry mode (also RGBD and Multisensor), and saves the output |
 | `bag_output_rerun.py` | Python | Shows in Rerun a cuVSLAM run already done, from the bag of its output topics or from a folder with its saved trajectories (and optionally the input bag for the images) |
 | `view_frames.py` | Python module | Common 3D frame of the Rerun viewers (base frame at the first pose) and overlay of saved trajectories (`--world`, `--compare`) |
@@ -60,6 +62,7 @@ messages are decoded by `bag2edex.py`.
 Dependencies between the scripts (they must stay in the same folder):
 
 - `track_bag_rerun.py` imports from `bag2edex.py`, `merge_rig_edex.py`, `track_edex_rerun.py` and `run_output.py`;
+- `map_bag.py` imports from `bag2edex.py`, `merge_rig_edex.py`, `run_output.py`, `track_bag_rerun.py` and `track_edex_rerun.py`;
 - `track_edex_rerun.py` imports `run_output.py` (and `bag2edex.py` to read `/tf_static` when `--out-dir` is used);
 - `merge_rig_edex.py` and `bag_output_rerun.py` import from `bag2edex.py`;
 - the three Rerun viewers (`track_edex_rerun.py`, `track_bag_rerun.py`, `bag_output_rerun.py`) import `view_frames.py`;
@@ -173,6 +176,14 @@ G=~/dotlumen/VRHealth_Challenge13/results
 python3 compare_runs.py ros=$G/slam_csv/cam2_stereo_imu/loop_closure \
     bag=$R/bag/cam2_stereo_imu/loop_closure edex=$R/edex/cam2_stereo_imu/loop_closure \
     --gt $G/ground_truth/loop_closure/paths3d.csv --out $G/comparisons/cam2_stereo_imu/loop_closure
+```
+
+**Map and relocalization test on one capture**
+
+```bash
+M=~/dotlumen/VRHealth_Challenge13/results/maps/cam2_stereo_imu/loop_closure
+python3 map_bag.py build $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --out-dir $M
+python3 map_bag.py localize $B --map $M --out-dir $M/localize
 ```
 
 **4-IR rig with both cameras**
@@ -535,7 +546,7 @@ python3 track_edex_rerun.py <stereo.edex> --mode mono --cameras 0 --save run.rrd
 | `--out-dir` | text | - | save the cuVSLAM output (CSV in the Isaac ROS format + run_info.json) to this folder |
 | `--base-frame` | text | - | frame of the saved poses (default: &lt;cam&gt;_link of the EDEX rig; 'rig' = no conversion) |
 | `--bag` | text | - | source bag for /tf_static (default: from ../bag_report.json) |
-| `--async-sba` | flag | off | async_sba=True (as in real time; default False: synchronous offline run) |
+| `--async-sba` | flag | off | real-time mode: async_sba=True and the real-time tracker mode (`OdometryWithSlamRealtime` / `OdometryOnlyRealtime`); default: synchronous offline run (`*Offline` modes) |
 | `--no-viewer` | flag | off | do not open the Rerun viewer |
 | `--world` | `base` \| `native` | `base` | 3D world frame: 'base' = base frame (--base-frame) at the first pose, z up, the same for every viewer (see view_frames.py); 'native' = cuVSLAM rig at the first frame (OpenCV axes) |
 | `--compare` | one or more `LABEL=FOLDER` | - | overlay the trajectories saved in these folders (odometry.csv / slam_poses.csv of Isaac ROS or of --out-dir); needs --world base |
@@ -601,10 +612,217 @@ python3 track_bag_rerun.py $B --mode mono --streams cam2/rgb --start 10 --end 40
 | `--verbosity` | integer | `1` | cuvslam.set_verbosity (0-3) |
 | `--out-dir` | text | - | save the cuVSLAM output (CSV in the Isaac ROS format + run_info.json) to this folder |
 | `--base-frame` | text | - | frame of the saved poses (default: &lt;cam&gt;_link of the reference stream; 'rig' = no conversion) |
-| `--async-sba` | flag | off | async_sba=True (as in real time; default False: synchronous offline run) |
+| `--async-sba` | flag | off | real-time mode: async_sba=True and the real-time tracker mode (`OdometryWithSlamRealtime` / `OdometryOnlyRealtime`); default: synchronous offline run (`*Offline` modes) |
 | `--no-viewer` | flag | off | do not open the Rerun viewer |
 | `--world` | `base` \| `native` | `base` | 3D world frame: 'base' = base frame (--base-frame) at the first pose, z up, the same for every viewer (see view_frames.py); 'native' = cuVSLAM rig at the first frame (OpenCV axes) |
 | `--compare` | one or more `LABEL=FOLDER` | - | overlay the trajectories saved in these folders (odometry.csv / slam_poses.csv of Isaac ROS or of --out-dir); needs --world base |
+
+## map_bag.py
+
+Builds a cuVSLAM SLAM map from a ROS 2 bag (`.mcap` or `.db3`) and tests relocalization in that map, simulating a
+tracking loss. The bag is read with the functions of `track_bag_rerun.py` (same streams, rig, synchronization, IMU
+handling and incomplete-frame rule), so the frames are the same as in the `track_bag_rerun.py` runs. No viewer.
+
+Two subcommands:
+
+- `build`: runs cuVSLAM with SLAM on a capture (or on a time range of it), saves the SLAM map (LMDB database) and the
+  reference trajectory in the native frame of the map.
+- `localize`: starts a **new** cuVSLAM session on cuts `[t1, t2]` of a capture and tries to localize it in a saved map,
+  with a prior taken from the reference trajectory before a simulated loss of `t_prev` seconds.
+
+**What `build` does**
+
+1. Offline SLAM run (`OdometryWithSlamOffline`, `Slam.Config(sync_mode=True, max_map_size=0)`): `max_map_size=0` keeps
+   the whole pose graph in the map (the cuVSLAM default, 300, keeps only the last 300 poses).
+2. Saves the map with `Slam.save_map` to `<out-dir>/map/` (`data.mdb`).
+3. Writes `reference_slam.csv`: the final SLAM poses of every frame (`get_all_slam_poses`, after loop closures and
+   pose graph optimization) as rig poses `world_from_rig` in the **native map frame** (cuVSLAM rig = first stream
+   camera, OpenCV axes x right, y down, z forward). The `localize` results are compared with these poses directly, without alignment.
+4. Writes `odometry_native.csv` (odometry poses, same frame) and `keyframes.csv` (nodes of the pose graph).
+5. Inertial mode: the gravity estimated at each frame (rig frame, `get_last_gravity`) is rotated by the final pose of
+   the frame and averaged: the gravity direction in the map frame is saved in `map_info.json` (`gravity_map`).
+6. Writes the standard run output (`run_output.py`, as `track_bag_rerun.py --out-dir`) in `<out-dir>/run/`.
+
+**What `localize` does**
+
+For each `t1` (given with `--t1` or sampled every `--t1-step` s) and each `t_prev` (`--t-prev`), one query:
+
+1. A new tracker with SLAM is created; the frames of the cut `[t1, t1 + --duration]` are fed to it (IMU from 0.1 s before
+   `t1`).
+2. Prior = last reference pose with timestamp `<= t1 - t_prev` (the last pose tracked before a loss of `t_prev` seconds;
+   `t_prev = 0` is a perfect prior).
+3. Up to `--attempts` (N) single-frame localization attempts, one every `--attempt-every` s starting from the first
+   tracked frame of the cut. The prior of attempt k is the last tracked pose composed with the odometry of the new
+   session since `t1` (`T_last · O_first⁻¹ · O_k`); with `--prior-gravity` (inertial mode), its roll and pitch are
+   replaced with those given by the gravity estimated by the new session (heading and position unchanged), when that
+   gravity is available.
+4. After a successful localization the session keeps tracking until `t2`; its SLAM poses, now in the map frame, are
+   compared frame by frame with `reference_slam.csv` (`post_localization.csv`). When all attempts fail the query stops,
+   unless `--track-after-failure` is given.
+5. Errors are computed without any alignment, in the map frame: translation (m), rotation (deg) and vertical error
+   (along `gravity_map`). A localization is a **true positive** when its error is within `--thr-t` (0.3 m) and
+   `--thr-r` (10 deg), otherwise a **false positive**.
+
+**How cuVSLAM `localize_in_map` works** (`Slam.localize_in_map(folder, timestamp_ns, guess_pose, images, settings,
+start_cb, finish_cb)`, cuVSLAM 17.0.0)
+
+- It uses **one frame** (the images of all the cameras of the rig at `timestamp_ns`) and **requires a prior**
+  (`guess_pose`, rig pose in the map frame). There is no global place recognition: the map is searched only around the prior.
+- `Slam.LocalizationSettings` defines a grid around the prior: horizontal radius along rig x and z
+  (`horizontal_search_radius`, `horizontal_step`), vertical radius along rig y (`vertical_search_radius`, `vertical_step`),
+  and a full 360 deg rotation around rig y (`angular_step_rads`). The candidates are tried starting from the closest one to
+  the prior; the first one that is solved is returned.
+- Maximum number of candidates: `(2R/h + 1)² × (2V/v + 1) × (360/angle step)`, with R, V the horizontal and vertical radius and h, v
+  the steps. With the defaults (4 m, 1 m, 0.5 m, 0.25 m, 10 deg): 17² × 9 × 36 = 93636.
+- With `sync_mode=True` the call returns after `finish_cb(pose, message)` has run (`pose` is `None` on failure).
+- On success, the saved map **replaces** the map of the session: the following SLAM poses are in the map frame.
+- The search radius is along the rig axes: if the prior has a wrong roll/pitch, the "horizontal" plane of the grid is
+  tilted; `--prior-gravity` corrects this when the new session has a gravity estimate.
+
+**Usage**
+
+```bash
+B=~/dotlumen/Captures/mcap/9_Loop_closure/loop_closure
+M=~/dotlumen/VRHealth_Challenge13/results/maps/cam2_stereo_imu/loop_closure
+
+# build the map on the whole capture (cam2 IR stereo + IMU)
+python3 map_bag.py build $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --out-dir $M
+
+# short test: 2 cuts x 4 t_prev = 8 queries
+python3 map_bag.py localize $B --map $M --t1 20 35 --out-dir $M/localize_test
+
+# default sampling: t1 every 5 s, t_prev 0/1/3/5 s, 10 s cuts, up to 16 attempts every 0.25 s
+python3 map_bag.py localize $B --map $M --t1-step 5 --t-prev 0 1 3 5 --duration 10 \
+    --attempts 16 --attempt-every 0.25 --out-dir $M/localize
+
+# in Docker
+NO_X11=1 docker/run.sh map_bag.py build $B --mode inertial --streams cam2/ir1 cam2/ir2 --rectified --out-dir $M
+
+# watch the queries live in Rerun at real-time speed (docker/run.sh shares the display), also saving the recording
+docker/run.sh map_bag.py localize $B --map $M --t1 20 35 --out-dir $M/localize_test --viewer --pace 1 \
+    --save $M/localize_test/localize.rrd
+# or only save it and open it later: rerun $M/localize_test/localize.rrd
+python3 map_bag.py localize $B --map $M --t1 20 35 --out-dir $M/localize_test --save $M/localize_test/localize.rrd
+```
+
+On `loop_closure` (cam2 IR stereo + IMU, RTX 4070 Ti, Docker) `build` takes about 25 s (804 frames, 240 keyframes,
+88.6 MB map) and the default `localize` sampling (9 values of t1 × 4 t_prev = 36 queries) about 75 s.
+
+**Arguments and options of `build`**
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `bag` (positional) | text | **required** | bag folder (.mcap/.db3) or single file |
+| `--out-dir` | text | **required** | output folder (map/, reference_slam.csv, map_info.json, run/) |
+| `--mode` | `multicamera` \| `inertial` \| `mono` | `inertial` | cuVSLAM odometry mode |
+| `--streams` | one or more `STREAMS` | - | streams &lt;cam&gt;/&lt;rgb\|ir1\|ir2&gt;; the first one is the rig origin (as track_bag_rerun.py). Default: mono -&gt; &lt;imu-camera&gt;/rgb, inertial -&gt; &lt;imu-camera&gt;/ir1 ir2, multicamera -&gt; ir1 ir2 of all cameras |
+| `--imu-camera` | text | `cam2` | camera providing the IMU (inertial mode) |
+| `--extrinsic` | `X` `Y` `Z` `QX` `QY` `QZ` `QW` | `-0.04 0.0 0.0509 0.0 -0.42273 0.0 0.90626` | T_&lt;cam1&gt;_link_from_&lt;cam2&gt;_link (used only if /tf_static does not connect the cameras) |
+| `--link-frame` | text | `{cam}_link` | base frame of each camera in /tf_static |
+| `--require-all-streams`, `--no-require-all-streams` | flag | on in inertial mode, off otherwise | drop the frames where some stream has no image within --tolerance-ms |
+| `--tolerance-ms` | number | `1.0` | maximum offset between the reference and the other streams |
+| `--stale-threshold` | number | `0.5` | discard messages whose stamp-receive offset is more than N s from the median |
+| `--multicam-mode` | `precision` \| `moderate` \| `performance` | `precision` | selection of primary cameras in Multicamera |
+| `--rectified` | flag | off | rectified_stereo_camera=True (rectified IR pairs) |
+| `--max-map-size` | integer | `0` | Slam.Config.max_map_size (poses in the pose graph, 0 = unlimited; cuVSLAM default 300) |
+| `--start` | number | - | map range start, seconds from the beginning |
+| `--end` | number | - | map range end, seconds from the beginning |
+| `--max-frames` | integer | - | maximum number of frames to process |
+| `--verbosity` | integer | `0` | cuvslam.set_verbosity (0-3) |
+
+**Arguments and options of `localize`**
+
+The rig configuration (mode, streams, extrinsic, tolerance, rectified, ...) is read from `map_info.json` of the map.
+
+| Argument | Value | Default | Description |
+|---|---|---|---|
+| `bag` (positional) | text | **required** | query bag folder (.mcap/.db3) or single file; for now it must be the capture of the map |
+| `--map` | text | **required** | folder written by `build` |
+| `--out-dir` | text | `<map>/localize` | output folder |
+| `--t1` | one or more numbers | sampled with `--t1-step` | start times of the cuts (s from the beginning) |
+| `--t1-step` | number | `5.0` | sampling step of t1 (s) |
+| `--margin` | number | `2.0` | t1 - max(t_prev) at least this many seconds after the start of the map (sampling only) |
+| `--duration` | number | `10.0` | length of each cut t2 - t1 (s) |
+| `--t-prev` | one or more numbers | `0 1 3 5` | simulated tracking loss: prior = reference pose at t1 - t_prev |
+| `--attempts` | integer | `16` | maximum single-frame localization attempts (N) |
+| `--attempt-every` | number | `0.25` | seconds between attempts |
+| `--track-after-failure` | flag | off | keep tracking until t2 when all the attempts failed (default: stop) |
+| `--prior-gravity`, `--no-prior-gravity` | flag | on | take roll/pitch of the prior from the gravity estimated by the new session (inertial) |
+| `--h-radius` | number | `4.0` | horizontal search radius (m, rig x and z) |
+| `--v-radius` | number | `1.0` | vertical search radius (m, rig y) |
+| `--h-step` | number | `0.5` | horizontal step (m) |
+| `--v-step` | number | `0.25` | vertical step (m) |
+| `--angle-step-deg` | number | `10.0` | rotation step around rig y (deg) |
+| `--thr-t` | number | `0.3` | true positive threshold, translation (m) |
+| `--thr-r` | number | `10.0` | true positive threshold, rotation (deg) |
+| `--viewer` | flag | off | show the queries live in the Rerun viewer (map, reference, attempts, tracking) |
+| `--save` | text | - | save the Rerun recording to this .rrd file (also together with `--viewer`) |
+| `--pace` | number | `0.0` | with --viewer: play the cuts at this speed (1 = real time; 0 = as fast as possible) |
+| `--image-every` | integer | `1` | send the images to Rerun every N frames |
+| `--verbosity` | integer | `0` | cuvslam.set_verbosity (0-3) |
+
+When `--t1` is not given, t1 goes from `max(margin, start of the map + max(t_prev) + margin)` to `end of the capture - duration`
+in steps of `--t1-step`.
+
+**Output of `build`** (`--out-dir`)
+
+| File | Content |
+|---|---|
+| `map/` | cuVSLAM SLAM map (LMDB, `data.mdb`), input of `localize` |
+| `reference_slam.csv` | `timestamp_ns, tx, ty, tz, qx, qy, qz, qw`: final SLAM rig pose of every frame in the native map frame (reference of `localize`) |
+| `odometry_native.csv` | same columns: odometry rig poses of the build run, same frame |
+| `keyframes.csv` | `id, tx, ty, tz, qx, qy, qz, qw`: nodes (keyframes) of the final pose graph |
+| `map_landmarks.csv` | `id, x, y, z, weight`: landmarks of the SLAM map (`Slam.DataLayer.Map`) in the map frame, shown by the `localize` viewer |
+| `map_info.json` | configuration (rig, streams, `max_map_size`), frames, lost frames, first/last timestamps, bag start time, number of reference poses and keyframes, `gravity_map` (unit gravity direction in the map frame, inertial mode only), map size, `save_map` time, cuVSLAM version, wall time, `run_summary` |
+| `run/` | standard run output of `run_output.py` (odometry.csv, slam_poses.csv, slam_online.csv, loop_closures.csv, status.csv, slam_metrics.csv, run_info.json), poses of `<cam>_link`, comparable with `compare_runs.py` |
+
+**Output of `localize`** (`--out-dir`)
+
+| File | Content |
+|---|---|
+| `queries.csv` | one row per query: t1, t_prev, t2, prior timestamp and gap, prior error (translation, rotation, vertical), `localized`, `attempt_ok`, number of attempts, localization timestamp and delay from t1, localization error, `within_threshold`, tracker creation time, first-attempt time, total and successful attempt time (ms), post-localization statistics (frames, RMSE, max, final translation and rotation error), lost frames |
+| `attempts.csv` | one row per attempt: timestamp, time from t1, `gravity_used`, prior error, `ok`, time (ms), probe statistics (`probes`, `probes_solved`, `best_weight`; empty with cuVSLAM 17.0.0, which has no `get_localizer_probes`), error of the result, message of `finish_cb` |
+| `post_localization.csv` | `query, timestamp_ns, t_from_loc_s, tx..qw, err_t_m, err_r_deg`: SLAM poses of the new session after localization and their error vs the reference |
+| `localize_info.json` | map, query bag, t1 values, t_prev, duration, attempts, search settings and maximum number of candidates, thresholds, cuVSLAM version, `summary`: for each t_prev, the number of queries and, for N = 1, 2, 4, ... up to `--attempts`, localized / true positive / false positive / not localized and TP rate within N attempts; median localization error, delay, successful attempt time, total localization time and prior error |
+
+**Rerun view of `localize`** (`--viewer`, `--save`)
+
+The map and the queries are shown in one 3D view, in the native map frame, seen from above along the gravity of the map:
+
+| Element | Color | Content |
+|---|---|---|
+| `world/map/landmarks` | grey | landmarks of the map (`map_landmarks.csv`; missing for maps built before this file existed: rebuild the map) |
+| `world/map/reference` | purple | reference trajectory of the map (`reference_slam.csv`) |
+| `world/map/keyframes` | blue | keyframes of the pose graph |
+| `world/query/reference_cut` | yellow | reference trajectory of the current cut [t1, t2] |
+| `world/query/last_pose` | orange arrow | last pose before the loss (reference at t1 - t_prev) |
+| `world/query/track_before` | orange | new session before localization: last pose composed with the new-session odometry (what the system believes) |
+| `world/query/search`, `attempts/<k>/prior` | yellow box, arrow | search box (`--h-radius`, `--v-radius`, along the rig axes of the prior) and prior of the attempt |
+| `world/query/attempts/<k>/result` | green / red arrow | result of a successful attempt: green = true positive, red = false positive (cyan: no reference pose) |
+| `world/query/track_after` | green / red | SLAM poses of the new session after localization, in the map frame |
+| `world/query/reference_now` | purple point | reference pose of the current frame (where the rig should be) |
+| `world/rig` | camera | current pose shown with its camera images and the landmarks tracked by the new session |
+
+Arrows point along the rig z axis (camera forward). Left side: the camera images with the tracked points, the translation
+and rotation error after localization and an event log (one line per query and attempt; false positives at ERROR level,
+failed attempts at WARN level). Timelines: `step` (default; all the queries one after the other, 14 steps/s = about real
+time), `query` and `time` (capture time; the cuts of different queries overlap). With `--viewer` the data are sent while the
+queries run; `--pace 1` slows the run down to real time. The viewer stays open at the end (close it to exit, as in the
+tracking scripts).
+
+**Limits**
+
+- The query capture must be the map capture (otherwise there are no reference poses): the same images that built the
+  map are used to localize, so the results are an **optimistic upper bound** of relocalization on a new visit.
+- The times are measured offline (synchronous run, the frames are already decoded): they are the **compute cost** of
+  `localize_in_map` and not the real-time latency of a live system.
+- The first attempt is made on the first frame of the new session, when the session has no gravity estimate yet:
+  `--prior-gravity` only affects the later attempts.
+- The search covers only rotations around rig y and a box around the prior: priors with large roll/pitch errors or
+  outside the radius can fail or give false positives.
+- cuVSLAM runs are not exactly repeatable: on the same input the localization error changes slightly between runs, and
+  much more in ambiguous places (on `loop_closure`, over 6 repeated runs of the 4 queries at t1 = 35 s, the rotation error
+  ranged from about 2 to 87 deg; the query with t_prev = 5 s alone ranged from 2 to 55 deg, once within the threshold). Repeat the queries before drawing conclusions from single cases.
 
 ## track_edex_modes.py
 
@@ -998,5 +1216,6 @@ identity, as in the Isaac ROS output).
   The default noise parameters are those of the Isaac ROS launch files.
 - **Rectified images**: the RealSense IR topics are rectified (`image_rect_raw`); `--rectified` sets
   `rectified_stereo_camera`, as `rectified_images: True` in the Isaac ROS launch files.
-- **Determinism**: the tracking scripts run with `async_sba=False` by default (offline, repeatable); `--async-sba`
-  reproduces the asynchronous bundle adjustment of a real-time run.
+- **Determinism**: the tracking scripts run with `async_sba=False` by default (offline tracker mode, repeatable);
+  `--async-sba` selects the real-time tracker mode with asynchronous bundle adjustment, as in a real-time run
+  (frames are still fed as fast as possible, not at the bag rate).

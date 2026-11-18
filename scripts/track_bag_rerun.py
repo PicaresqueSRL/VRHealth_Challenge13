@@ -399,10 +399,16 @@ def main():
         enable_landmarks_export=True,
         enable_final_landmarks_export=True,
     )
-    if args.slam:
+    # cuVSLAM requires a real-time tracker mode with async_sba=True and an offline mode with async_sba=False
+    if args.slam and args.async_sba:
+        # real time: SLAM runs in the background, default SLAM config (sync_mode=False)
+        tracker = cuvslam.Tracker(rig, cuvslam.Tracker.Mode.OdometryWithSlamRealtime, odom_cfg)
+    elif args.slam:
         slam_cfg = cuvslam.Slam.Config()
         slam_cfg.sync_mode = True
         tracker = cuvslam.Tracker(rig, cuvslam.Tracker.Mode.OdometryWithSlamOffline, odom_cfg, slam_cfg)
+    elif args.async_sba:
+        tracker = cuvslam.Tracker(rig, cuvslam.Tracker.Mode.OdometryOnlyRealtime, odom_cfg)
     else:
         tracker = cuvslam.Tracker(rig, cuvslam.Tracker.Mode.OdometryOnlyOffline, odom_cfg)
 
