@@ -42,6 +42,24 @@ def load_xyz_from_csv(file_path):
 
     return np.array(points, dtype=np.float64), subpaths, extra_headers, extra_cols
 
+def compute_path_length(points, subpaths=None):
+    """
+    Computes the total Euclidean arc length of a 3D trajectory,
+    summing segment distances only within the same subpath.
+    """
+    if len(points) < 2:
+        return 0.0
+
+    if subpaths is None:
+        diffs = np.diff(points, axis=0)
+        return float(np.sum(np.linalg.norm(diffs, axis=1)))
+
+    total_length = 0.0
+    for i in range(len(points) - 1):
+        if subpaths[i] == subpaths[i + 1]:
+            total_length += float(np.linalg.norm(points[i + 1] - points[i]))
+    return total_length
+
 def densify_path(points, subpaths=None, max_step=0.02, min_total_points=2000):
     """
     Densifies a 3D trajectory by linearly interpolating along each segment
@@ -100,6 +118,21 @@ def resample_by_arclength(points, num_samples=500):
 
     return resampled
 
+def compute_arclength_ate(aligned_src, target_pts, src_subpaths=None, num_samples=1000):
+    """
+    Computes the Arc-Length Parameterized Absolute Trajectory Error (ATE)
+    by resampling both the aligned source trajectory and target trajectory into
+    `num_samples` equidistant points along their cumulative arc length (0% to 100%).
+    """
+    dense_aligned_src = densify_path(aligned_src, src_subpaths, max_step=0.02, min_total_points=num_samples)
+    src_arc = resample_by_arclength(dense_aligned_src, num_samples=num_samples)
+    dst_arc = resample_by_arclength(target_pts, num_samples=num_samples)
+
+    pointwise_errors = np.linalg.norm(src_arc - dst_arc, axis=1)
+    ate_rmse = float(np.sqrt(np.mean(pointwise_errors ** 2)))
+    ate_mae = float(np.mean(pointwise_errors))
+    return ate_rmse, ate_mae
+
 def find_nearest_neighbors(src_pts, dst_pts):
     """Finds the closest target point for each source point using chunked computation."""
     n_src = len(src_pts)
@@ -153,7 +186,7 @@ def run_trajectory_icp(source, dense_target, src_subpaths=None, allow_scale=True
     """
     Globally initializes scale, rotation, and translation and refines with bidirectional ICP.
     """
-    # Swap Y-axis direction for source points before densifying
+    # Swap Y-axis and Z-axis direction for source points before densifying
     source = np.copy(source)
     source[:, 1] = -source[:, 1]
     source[:, 2] = -source[:, 2]
@@ -245,7 +278,10 @@ def run_trajectory_icp(source, dense_target, src_subpaths=None, allow_scale=True
     mae = np.mean(final_d_src2dst)
     sym_rmse = np.sqrt(0.5 * (np.mean(final_d_src2dst ** 2) + np.mean(final_d_dst2src ** 2)))
 
-    return current_src, scale, rmse, mae, sym_rmse, iteration
+    # Compute Arc-Length Parameterized ATE (RMSE and MAE)
+    ate_rmse, ate_mae = compute_arclength_ate(current_src, dense_target, src_subpaths=src_subpaths)
+
+    return current_src, scale, rmse, mae, sym_rmse, ate_rmse, ate_mae, iteration
 
 def main():
     parser = argparse.ArgumentParser(
@@ -303,9 +339,14 @@ def main():
 
     allow_scale = not args.no_scale
 
-    aligned_pts, final_scale, rmse, mae, sym_rmse, num_iters = run_trajectory_icp(
+    aligned_pts, final_scale, rmse, mae, sym_rmse, ate_rmse, ate_mae, num_iters = run_trajectory_icp(
         src_pts, dense_dst_pts, src_subpaths=src_subpaths, allow_scale=allow_scale
     )
+
+    # Compute path lengths (in meters) and relative length error (%)
+    src_length_m = compute_path_length(aligned_pts, src_subpaths)
+    dst_length_m = compute_path_length(raw_dst_pts, dst_subpaths)
+    rel_length_err_pct = (abs(src_length_m - dst_length_m) / dst_length_m * 100.0) if dst_length_m > 1e-9 else 0.0
 
     # Save aligned points to output CSV
     with open(args.output, mode='w', newline='', encoding='utf-8') as f:
@@ -325,9 +366,14 @@ def main():
         f"Source Points           : {len(src_pts)}",
         f"Iterations              : {num_iters}",
         f"Applied Scale Factor    : {final_scale:.6f}",
+        f"Source Path Length      : {src_length_m:.6f} m",
+        f"Target Path Length      : {dst_length_m:.6f} m",
+        f"Relative Length Error   : {rel_length_err_pct:.4f} %",
         f"Point-to-Target RMSE    : {rmse:.6f} m",
         f"Symmetric Chamfer RMSE  : {sym_rmse:.6f} m",
         f"Mean Euclidean Error    : {mae:.6f} m",
+        f"Arc-Length ATE RMSE     : {ate_rmse:.6f} m",
+        f"Arc-Length ATE MAE      : {ate_mae:.6f} m",
         f"Aligned path saved to   : {args.output}"
     ]
 

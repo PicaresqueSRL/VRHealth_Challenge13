@@ -11,10 +11,36 @@ EXCLUDED_KEYS = {
     "Aligned path saved to"
 }
 
+# Mapping from log keys to explicit CSV column names with units where desired
+KEY_RENAME_MAP = {
+    "Source Path Length": "Source Path Length (m)",
+    "Target Path Length": "Target Path Length (m)",
+    "Relative Length Error": "Relative Length Error (%)"
+}
+
+# Preferred column ordering for the summary CSV
+PREFERRED_COLUMN_ORDER = [
+    "Subfolder",
+    "Mode",
+    "Target Points (Raw)",
+    "Target Points (Densified)",
+    "Source Points",
+    "Iterations",
+    "Applied Scale Factor",
+    "Source Path Length (m)",
+    "Target Path Length (m)",
+    "Relative Length Error (%)",
+    "Point-to-Target RMSE",
+    "Symmetric Chamfer RMSE",
+    "Mean Euclidean Error",
+    "Arc-Length ATE RMSE",
+    "Arc-Length ATE MAE"
+]
+
 def parse_log_file(log_path, subfolder_name):
     """
     Parses an ICP alignment .log file and extracts metrics, excluding file paths.
-    Splits 'Target Points' into raw and densified counts and strips units ('m').
+    Splits 'Target Points' into raw and densified counts and strips units ('m', '%').
     """
     row_data = {"Subfolder": subfolder_name}
 
@@ -24,7 +50,6 @@ def parse_log_file(log_path, subfolder_name):
             if not line:
                 continue
 
-            # Optional: capture the ICP mode from the header line if needed
             if line.startswith("===") and line.endswith("==="):
                 mode = line.strip("=").replace("Completed", "").strip()
                 row_data["Mode"] = mode
@@ -38,7 +63,6 @@ def parse_log_file(log_path, subfolder_name):
                 if key in EXCLUDED_KEYS:
                     continue
 
-                # Handle "4 raw -> 2001 densified" either as separate columns or raw string
                 if key == "Target Points":
                     match = re.match(r"(\d+)\s*raw\s*->\s*(\d+)\s*densified", val)
                     if match:
@@ -47,16 +71,20 @@ def parse_log_file(log_path, subfolder_name):
                     else:
                         row_data[key] = val
                 else:
-                    # Strip trailing ' m' unit from error metrics for clean numeric CSV cells
+                    # Strip trailing ' m' or ' %' units from numeric values
                     if val.endswith(" m"):
                         val = val[:-2].strip()
-                    row_data[key] = val
+                    elif val.endswith(" %"):
+                        val = val[:-2].strip()
+
+                    col_name = KEY_RENAME_MAP.get(key, key)
+                    row_data[col_name] = val
 
     return row_data
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python aggregate_logs.py <input_root_directory> <output_file.csv>")
+        print("Usage: python AggregateLogs.py <input_root_directory> <output_file.csv>")
         sys.exit(1)
 
     base_dir = Path(sys.argv[1]).resolve()
@@ -72,7 +100,7 @@ def main():
         sys.exit(0)
 
     rows = []
-    fieldnames = ["Subfolder"]
+    discovered_keys = []
 
     for folder in subdirs:
         log_files = sorted(folder.glob("*.log"))
@@ -83,12 +111,18 @@ def main():
             parsed = parse_log_file(log_file, folder.name)
             rows.append(parsed)
             for k in parsed.keys():
-                if k not in fieldnames:
-                    fieldnames.append(k)
+                if k not in discovered_keys:
+                    discovered_keys.append(k)
 
     if not rows:
         print(f"No .log files found in any subdirectory of '{base_dir}'.")
         sys.exit(0)
+
+    # Order columns according to PREFERRED_COLUMN_ORDER, followed by any extra keys found
+    fieldnames = [col for col in PREFERRED_COLUMN_ORDER if col in discovered_keys]
+    for col in discovered_keys:
+        if col not in fieldnames:
+            fieldnames.append(col)
 
     # Write aggregated table to CSV
     output_csv.parent.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,12 @@ Target Points           : 9 raw -> 2005 densified
 Source Points           : 902
 Iterations              : 57
 Applied Scale Factor    : 1.000000
+Source Path Length      : 23.893604 m
+Target Path Length      : 26.436381 m
+Relative Length Error   : 9.6185 %
 Point-to-Target RMSE    : 1.329058 m
 Symmetric Chamfer RMSE  : 1.890316 m
 Mean Euclidean Error    : 1.183725 m
+Arc-Length ATE RMSE     : 2.609633 m
+Arc-Length ATE MAE      : 2.335164 m
 Aligned path saved to   : D:\VRHealth\VRHealth_Challenge13\results\ground_truth\cam1_cam2_stereo\staircases_fix_1\aligned_odometry.csv
