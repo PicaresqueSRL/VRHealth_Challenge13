@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300" viewBox="0 0 760 300" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#555"/></marker></defs>
+<rect x="0" y="0" width="760" height="300" fill="#fff"/>
+<text x="10" y="18" font-weight="bold" fill="#333">Isaac ROS container (cached_isaac_run_dev_image_local)</text>
+<rect x="5" y="25" width="470" height="265" rx="8" fill="#f3f7fb" stroke="#9db4cc" stroke-dasharray="4 3"/>
+<text x="490" y="18" font-weight="bold" fill="#333">vrhealth-cuvslam image / venv</text>
+<rect x="485" y="25" width="270" height="265" rx="8" fill="#f6f3fb" stroke="#b7a6d6" stroke-dasharray="4 3"/>
+<rect x="15" y="40" width="140" height="44" rx="6" fill="#fff" stroke="#888"/>
+<text x="85" y="58" text-anchor="middle">capture bag (MCAP)</text><text x="85" y="73" text-anchor="middle" fill="#666">Captures/mcap/...</text>
+<rect x="200" y="35" width="260" height="58" rx="6" fill="#dbe9f7" stroke="#3d6fa3"/>
+<text x="330" y="54" text-anchor="middle" font-weight="bold">map_cam2.sh</text>
+<text x="330" y="69" text-anchor="middle">+ cuvslam_stereo_imu_cam2_map.launch.py</text>
+<text x="330" y="84" text-anchor="middle" fill="#555">(or LAUNCH=..._map_noimu.launch.py)</text>
+<rect x="200" y="113" width="260" height="58" rx="6" fill="#fff" stroke="#888"/>
+<text x="330" y="130" text-anchor="middle" font-weight="bold">isaac_maps/&lt;capture&gt;/</text>
+<text x="330" y="145" text-anchor="middle">map/data.mdb, odometry.csv (prior),</text>
+<text x="330" y="160" text-anchor="middle">slam_poses.csv (reference), run_info.json</text>
+<rect x="200" y="191" width="260" height="44" rx="6" fill="#dbe9f7" stroke="#3d6fa3"/>
+<text x="330" y="209" text-anchor="middle" font-weight="bold">localize_query.py</text>
+<text x="330" y="224" text-anchor="middle">+ cuvslam_stereo_imu_cam2_localize.launch.py</text>
+<rect x="200" y="250" width="260" height="34" rx="6" fill="#fff" stroke="#888"/>
+<text x="330" y="264" text-anchor="middle" font-weight="bold">isaac_localize/&lt;capture&gt;/</text>
+<text x="330" y="278" text-anchor="middle">queries/attempts/post_localization.csv, qNNN/</text>
+<rect x="500" y="191" width="240" height="44" rx="6" fill="#e9e1f7" stroke="#6a4fa3"/>
+<text x="620" y="209" text-anchor="middle" font-weight="bold">isaac_localize_rerun.py</text>
+<text x="620" y="224" text-anchor="middle">rerun/&lt;capture&gt;.rrd</text>
+<rect x="500" y="250" width="240" height="34" rx="6" fill="#e9e1f7" stroke="#6a4fa3"/>
+<text x="620" y="264" text-anchor="middle" font-weight="bold">isaac_localize_summary.py</text>
+<text x="620" y="278" text-anchor="middle">summary.md / summary.csv (all captures)</text>
+<rect x="500" y="40" width="240" height="44" rx="6" fill="#fff" stroke="#888"/>
+<text x="620" y="58" text-anchor="middle">capture bag (IR images)</text><text x="620" y="73" text-anchor="middle" fill="#666">read with bag2edex.py</text>
+<g stroke="#555" fill="none" marker-end="url(#a)">
+<path d="M155,62 L198,62"/>
+<path d="M330,93 L330,111"/>
+<path d="M330,171 L330,189"/>
+<path d="M330,235 L330,248"/>
+<path d="M85,84 L85,213 L198,213"/>
+<path d="M460,267 L498,213"/>
+<path d="M460,142 L560,142 L560,189"/>
+<path d="M460,267 L498,267"/>
+<path d="M460,150 L540,150 L540,250 L498,262" stroke-dasharray="3 3"/>
+<path d="M620,84 L620,189"/>
+</g>
+</svg>

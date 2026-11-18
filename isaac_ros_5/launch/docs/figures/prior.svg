@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="330" viewBox="0 0 780 330" font-family="DejaVu Sans, Arial, sans-serif" font-size="11">
+<defs>
+<marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#333"/></marker>
+<marker id="o" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#d9822b"/></marker>
+<marker id="p" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8e44ad"/></marker>
+</defs>
+<rect width="780" height="330" fill="#fff"/>
+<text x="10" y="18" font-weight="bold">Map frame (mapping run)</text>
+<rect x="5" y="25" width="480" height="300" rx="8" fill="#fafafa" stroke="#ccc"/>
+<!-- mapping odometry / reference -->
+<path d="M30,280 C80,270 110,250 140,230 C190,200 220,150 280,120 C330,95 380,90 450,70" fill="none" stroke="#999" stroke-width="2.5"/>
+<path d="M30,282 C80,272 110,252 140,232 C190,202 220,152 280,122 C330,97 380,92 450,72" fill="none" stroke="#8e44ad" stroke-width="1.2" stroke-dasharray="5 3"/>
+<circle cx="140" cy="231" r="5" fill="#d9822b"/>
+<text x="60" y="222" fill="#d9822b" font-weight="bold">T_last</text>
+<text x="40" y="250" fill="#555" font-size="10">odometry.csv at t1 − t_prev</text>
+<circle cx="280" cy="121" r="5" fill="#8e44ad"/><text x="180" y="122" fill="#8e44ad">true pose at t1</text>
+<circle cx="410" cy="82" r="5" fill="#8e44ad"/><text x="385" y="70" fill="#8e44ad">true pose at t_k</text>
+<text x="40" y="150" fill="#555" font-size="10">not observed</text><text x="40" y="162" fill="#555" font-size="10">(t_prev s of "loss")</text>
+<!-- prior track: copy of the motion t1->tk applied at T_last -->
+<path d="M140,231 C190,206 240,198 270,192" fill="none" stroke="#d9822b" stroke-width="2.5" marker-end="url(#o)"/>
+<circle cx="272" cy="191" r="5" fill="#d9822b"/><text x="282" y="200" fill="#d9822b" font-weight="bold">prior_k</text>
+<path d="M272,191 L405,86" stroke="#c0392b" stroke-dasharray="4 3" fill="none"/>
+<text x="345" y="155" fill="#c0392b" font-size="10">prior error ≈ motion</text><text x="345" y="167" fill="#c0392b" font-size="10">during the loss</text>
+<text x="20" y="303" fill="#555" font-size="10">grey: mapping odometry.csv (source of T_last); dashed purple: slam_poses.csv</text><text x="20" y="316" fill="#555" font-size="10">(reference); orange: prior of the attempts</text>
+<!-- right: odom frame -->
+<text x="500" y="18" font-weight="bold">odom frame (new session)</text>
+<rect x="495" y="25" width="280" height="300" rx="8" fill="#f3f7fb" stroke="#9db4cc"/>
+<circle cx="530" cy="250" r="5" fill="#333"/><text x="540" y="268">O_first (≈ identity, at ≈ t1)</text>
+<path d="M530,250 C580,225 630,217 660,211" fill="none" stroke="#3d6fa3" stroke-width="2.5" marker-end="url(#a)"/>
+<circle cx="662" cy="210" r="5" fill="#3d6fa3"/><text x="640" y="196" fill="#3d6fa3">O_k</text>
+<text x="550" y="235" fill="#3d6fa3" font-size="10">O_first⁻¹ · O_k</text>
+<text x="510" y="60" font-size="12">prior_k = T_last · O_first⁻¹ · O_k</text>
+<text x="510" y="85" font-size="10" fill="#444">relative motion of the new session since its</text>
+<text x="510" y="98" font-size="10" fill="#444">first frame, applied at the last known pose</text>
+<text x="510" y="122" font-size="10" fill="#444">t_prev = 0 → T_last ≈ true pose at t1</text>
+<text x="510" y="136" font-size="10" fill="#444">t_prev &gt; 0 → constant offset (the motion during</text>
+<text x="510" y="149" font-size="10" fill="#444">the loss), rotated with the session</text>
+</svg>
