@@ -1,18 +1,18 @@
-Subfolder,Mode,Target Points (Raw),Target Points (Densified),Source Points,Iterations,Applied Scale Factor,Point-to-Target RMSE,Symmetric Chamfer RMSE,Mean Euclidean Error
-build_in_out,Rigid Trajectory ICP (No Scaling),10,2006,681,41,1.000000,0.432758,0.427791,0.309713
-build_out_in,Rigid Trajectory ICP (No Scaling),8,2005,596,97,1.000000,1.037672,0.843035,0.762786
-building_in_108,Rigid Trajectory ICP (No Scaling),8,2005,221,78,1.000000,0.814775,0.750219,0.698623
-cars_106,Rigid Trajectory ICP (No Scaling),2,2001,100,2,1.000000,0.000000,1.577463,0.000000
-elevator_down_107,Rigid Trajectory ICP (No Scaling),4,2001,686,116,1.000000,0.613379,0.453569,0.536898
-elevator_up_103,Rigid Trajectory ICP (No Scaling),3,2001,394,14,1.000000,0.299329,1.084473,0.268202
-internal_corridor_104,Rigid Trajectory ICP (No Scaling),2,2002,461,79,1.000000,3.020213,2.136274,1.705545
-loop_closure,Rigid Trajectory ICP (No Scaling),39,2438,709,16,1.000000,1.171187,1.495248,0.989753
-loop_closure_2,Rigid Trajectory ICP (No Scaling),22,2118,441,15,1.000000,18.580258,13.394524,14.484319
-low_detail,Rigid Trajectory ICP (No Scaling),2,2001,533,135,1.000000,0.550877,0.435426,0.327325
-low_detail_2,Rigid Trajectory ICP (No Scaling),2,2001,158,6,1.000000,0.024191,2.520588,0.019683
-low_detail_3,Rigid Trajectory ICP (No Scaling),2,2001,57,7,1.000000,0.220345,0.826804,0.174921
-outdoor_b_2000,Rigid Trajectory ICP (No Scaling),8,2004,471,48,1.000000,0.484712,0.391225,0.366152
-pedestrians_105,Rigid Trajectory ICP (No Scaling),13,2543,372,15,1.000000,1.825561,2.489042,1.564640
-staircases_102,Rigid Trajectory ICP (No Scaling),12,2176,807,43,1.000000,2.364411,2.543226,2.065295
-staircases_fix_1,Rigid Trajectory ICP (No Scaling),9,2005,902,57,1.000000,1.329058,1.890316,1.183725
-staircases_up_109,Rigid Trajectory ICP (No Scaling),6,2003,467,72,1.000000,1.292532,1.141777,0.980554
+Subfolder,Mode,Target Points (Raw),Target Points (Densified),Source Points,Iterations,Applied Scale Factor,Source Path Length (m),Target Path Length (m),Relative Length Error (%),Point-to-Target RMSE,Symmetric Chamfer RMSE,Mean Euclidean Error,Arc-Length ATE RMSE,Arc-Length ATE MAE
+build_in_out,Rigid Trajectory ICP (No Scaling),10,2006,681,41,1.000000,20.833009,20.376428,2.2407,0.432758,0.427791,0.309713,0.540822,0.449417
+build_out_in,Rigid Trajectory ICP (No Scaling),8,2005,596,97,1.000000,23.430339,14.828904,58.0045,1.037672,0.843035,0.762786,1.565048,1.464372
+building_in_108,Rigid Trajectory ICP (No Scaling),8,2005,221,78,1.000000,16.743898,14.824044,12.9509,0.814775,0.750219,0.698623,0.945640,0.904855
+cars_106,Rigid Trajectory ICP (No Scaling),2,2001,100,2,1.000000,0.000000,7.724100,100.0000,0.000000,1.577463,0.000000,2.231986,1.932958
+elevator_down_107,Rigid Trajectory ICP (No Scaling),4,2001,686,116,1.000000,9.792752,1.660800,489.6407,0.613379,0.453569,0.536898,1.438412,1.265260
+elevator_up_103,Rigid Trajectory ICP (No Scaling),3,2001,394,14,1.000000,5.954788,9.384900,36.5493,0.299329,1.084473,0.268202,2.128048,1.885430
+internal_corridor_104,Rigid Trajectory ICP (No Scaling),2,2002,461,79,1.000000,39.964784,22.583500,76.9645,3.020213,2.136274,1.705545,4.808629,4.108435
+loop_closure,Rigid Trajectory ICP (No Scaling),39,2438,709,16,1.000000,31.910738,48.343102,33.9911,1.171187,1.495248,0.989753,7.423067,6.207544
+loop_closure_2,Rigid Trajectory ICP (No Scaling),22,2118,441,15,1.000000,158.365223,42.119933,275.9864,18.580258,13.394524,14.484319,21.494660,18.831344
+low_detail,Rigid Trajectory ICP (No Scaling),2,2001,533,135,1.000000,29.829220,26.054500,14.4878,0.550877,0.435426,0.327325,1.416162,1.296511
+low_detail_2,Rigid Trajectory ICP (No Scaling),2,2001,158,6,1.000000,1.408383,13.620300,89.6597,0.024191,2.520588,0.019683,3.660691,3.161113
+low_detail_3,Rigid Trajectory ICP (No Scaling),2,2001,57,7,1.000000,4.766421,8.321600,42.7223,0.220345,0.826804,0.174921,1.337713,1.080458
+outdoor_b_2000,Rigid Trajectory ICP (No Scaling),8,2004,471,48,1.000000,12.477889,10.915781,14.3105,0.484712,0.391225,0.366152,0.891779,0.830097
+pedestrians_105,Rigid Trajectory ICP (No Scaling),13,2543,372,15,1.000000,35.161907,50.671340,30.6079,1.825561,2.489042,1.564640,4.572461,3.933917
+staircases_102,Rigid Trajectory ICP (No Scaling),12,2176,807,43,1.000000,44.038383,43.375778,1.5276,2.364411,2.543226,2.065295,4.370278,3.879350
+staircases_fix_1,Rigid Trajectory ICP (No Scaling),9,2005,902,57,1.000000,23.893604,26.436381,9.6185,1.329058,1.890316,1.183725,2.609633,2.335164
+staircases_up_109,Rigid Trajectory ICP (No Scaling),6,2003,467,72,1.000000,21.017199,18.123182,15.9686,1.292532,1.141777,0.980554,1.473521,1.236819
