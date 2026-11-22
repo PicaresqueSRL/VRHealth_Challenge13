@@ -4,9 +4,17 @@ Design and behavior of the ROS 2 node created by `VRHealth_Challenge13/isaac_ros
 measures how Isaac ROS cuVSLAM relocalizes a new session in a saved map after a simulated tracking loss.
 
 Environment: desktop (RTX 4070 Ti), Docker image `cached_isaac_run_dev_image_local`, ROS 2 Lyrical,
-`isaac_ros_cuvslam` 5.0.0, cuVSLAM 15.0.0+33da606. Configuration: cam2 IR stereo + IMU (`tracking_mode 1`), rectified
-images, `base_frame cam2_link`. The numbers quoted as "typical" are medians over the 192 queries of the 11 captures in
-`~/dotlumen/localization/isaac_localize/`.
+`isaac_ros_cuvslam` 5.0.0, cuVSLAM 15.0.0+33da606. Two input configurations, selected by `--config`:
+
+| `--config` | Cameras, mode | Launch of the session | Played topics |
+|---|---|---|---|
+| `cam2_stereo_imu` (default) | cam2 IR stereo + IMU, `tracking_mode 1` | `cuvslam_stereo_imu_cam2_localize.launch.py` | `/cam2/infra{1,2}/image_rect_raw`, `/cam2/infra{1,2}/camera_info`, `/cam2/imu` |
+| `cam1_cam2_stereo` | cam2 + cam1 IR stereo, multicamera, no IMU, `tracking_mode 0`, `sync_ms 35` | `cuvslam_stereo_cam1_cam2_localize.launch.py` (also publishes the static TF `cam2_link -> cam1_link`) | the cam2 IR topics and `/cam1/infra{1,2}/image_rect_raw`, `/cam1/infra{1,2}/camera_info` |
+
+Both use rectified images and `base_frame cam2_link`, so the node, the prior and the evaluation are the same for the
+two configurations: only the launch file and the played topics change. The map must come from `map_cam2.sh` with the
+same `CONFIG`. The numbers quoted as "typical" are medians over the 192 queries of the 11 captures of the
+`cam2_stereo_imu` configuration in `~/dotlumen/localization/isaac_localize/cam2_stereo_imu/`.
 
 ## Contents
 
@@ -57,7 +65,7 @@ processes and one rclpy node, all inside the same Isaac ROS container:
 
 | Process | Started as | Role |
 |---|---|---|
-| `visual_slam_node` | `ros2 launch cuvslam_stereo_imu_cam2_localize.launch.py` (`--launch`), in a `component_container_mt` | the system under test: a new cuVSLAM session with SLAM and localization enabled, no map loaded |
+| `visual_slam_node` | `ros2 launch <localize launch of --config>` (`--launch`; `cuvslam_stereo_imu_cam2_localize.launch.py` by default), in a `component_container_mt` | the system under test: a new cuVSLAM session with SLAM and localization enabled, no map loaded |
 | `QueryNode` (rclpy, in the main process) | `QueryNode(...)`, node name `localize_query_<pid>` | listens to the session, computes the priors, calls `localize_in_map`, reads the result from `/rosout` |
 | `/tf_static` republisher | a latched publisher of `QueryNode` | publishes the static transforms of the bag once (`TRANSIENT_LOCAL`) |
 | bag recorder | `ros2 bag record -s mcap` | records the output of the session for the evaluation (`q<NNN>/bag`) |
@@ -108,22 +116,26 @@ The client is created at node construction; `wait_for_service(60 s)` also serves
 
 | Process | Topics |
 |---|---|
-| player → node | `/cam2/infra1/image_rect_raw`, `/cam2/infra1/camera_info`, `/cam2/infra2/image_rect_raw`, `/cam2/infra2/camera_info`, `/cam2/imu` |
+| player → node | `/cam2/infra1/image_rect_raw`, `/cam2/infra1/camera_info`, `/cam2/infra2/image_rect_raw`, `/cam2/infra2/camera_info`, plus `/cam2/imu` (`cam2_stereo_imu`) or `/cam1/infra{1,2}/image_rect_raw` and `/cam1/infra{1,2}/camera_info` (`cam1_cam2_stereo`) |
 | node → recorder | `/visual_slam/tracking/odometry`, `/visual_slam/tracking/slam_path`, `/visual_slam/status`, `/tf` (`map->odom` and `odom->cam2_link` every frame, same stamp as the odometry), `/rosout` |
 
 **Command-line arguments**
 
 | Argument | Default | Effect on the node |
 |---|---|---|
-| `--bag`, `--map-run`, `--out-dir` | required | capture, map run (`map/`, `odometry.csv`, `slam_poses.csv`), output folder |
-| `--launch` | `cuvslam_stereo_imu_cam2_localize.launch.py` | parameters of the session under test (search grid) |
+| `--config` | `cam2_stereo_imu` | input configuration: launch file, played topics, default paths |
+| `--bag` | required | capture |
+| `--capture` | - | capture name for the default `--map-run` / `--out-dir` |
+| `--map-run`, `--out-dir` | `localization/isaac_maps/<config>/<capture>`, `localization/isaac_localize/<config>/<capture>` (required without `--capture`) | map run (`map/`, `odometry.csv`, `slam_poses.csv`), output folder |
+| `--launch` | localize launch of `--config` | parameters of the session under test (search grid) |
 | `--t1`, `--t1-step`, `--margin`, `--duration`, `--t-prev` | sampled, 5, 2, 10, `0 1 3 5` | which queries are run (section 4) |
 | `--attempts`, `--attempt-every` | 16, 0.25 s | attempt scheduling (section 7) |
 | `--settle` | 3 s | spinning after the end of the cut |
 | `--thr-t`, `--thr-r` | 0.3 m, 10 deg | true positive thresholds of the evaluation |
-| `--g-map`, `--imu-window` | off, 0.5 s | optional accelerometer roll/pitch correction of the prior |
+| `--g-map`, `--imu-window` | off, 0.5 s | optional accelerometer roll/pitch correction of the prior (`cam2_stereo_imu` only: refused with `cam1_cam2_stereo`, which plays no IMU) |
 | `--stall-timeout` | 10 s | stop a query after N s of wall time without odometry |
-| `--reevaluate` | off | recompute the metrics from the recorded bags, no new query |
+| `--ref-interp-ms` | 0 (`cam2_stereo_imu`), 200 (`cam1_cam2_stereo`) | reference lookup: interpolate between the reference poses around a frame (at most N ms apart) when none is within 2 ms; needed because multicamera frames are stamped with the cam1 or the cam2 header, differently in each run |
+| `--reevaluate` | off | recompute the metrics (and the prior errors) from the recorded bags, no new query |
 
 ## 4. Per-query timeline
 
@@ -303,6 +315,7 @@ Example (`loop_closure/q001/node_log.txt`, receive times in ns):
 
 ```
 1794599191462191135 Starting async localization in map '/workspaces/isaac_ros-dev/localization/isaac_maps/loop_closure/map'
+                    (log of a run made before the maps were moved to isaac_maps/<config>/)
 1794599191462288758 Trying to localize in map '...' around [3.060297, 0.215559, 0.074012]
 1794599191467422262 Async localization started, waiting for callback during normal tracking
 1794599191579101010 Successfully localized at {3.056898, 0.204764, 0.124286}
@@ -394,7 +407,12 @@ reference pose with the same stamp (tolerance 2 ms); TP if ≤ `--thr-t` and ≤
 
 **Errors later**: `pub_err_*_1s` and `pub_err_*_2s` = published error at the first frames at least 1 s and 2 s after L;
 every frame from S to t2 is written to `post_localization.csv`, and `post_frames`, `post_rmse_t_m`, `post_max_err_t_m`,
-`post_final_err_t_m`, `post_final_err_r_deg` summarize them.
+`post_final_err_t_m`, `post_final_err_r_deg`, `post_duration_s`, `post_rmsd_aligned_m` summarize them.
+
+**Segment metrics**: the **segment** is the set of frames from the settled frame S to t2 that have both a published pose and a reference pose at the same stamp. `post_frames` = number of points of the segment, `post_duration_s` = time from its first to its last point; `post_rmse_t_m` = RMSE of the published positions vs the reference, no alignment (offset + drift); `post_rmsd_aligned_m` = RMSD after the best rigid alignment (rotation + translation, no scale; Kabsch/Umeyama on the time-paired positions, reflections excluded) of the published positions onto the reference ones: it removes the constant offset of the localization and keeps shape and drift. Empty with fewer than 3 points or collinear points. It does not say *where* the segment is (a localization 10 m off with the right shape scores a few cm), so it is read together with `post_rmse_t_m` and the TP flags; a short or almost still segment scores low by construction. Function `rigid_align_rmsd(P, Q)`:
+centroids, SVD of the cross-covariance `H = Σ (P_k − P̄)(Q_k − Q̄)ᵀ = U S Vᵀ`, `R = V diag(1, 1, sign det(V Uᵀ)) Uᵀ`,
+`t = Q̄ − R P̄`, RMSD = `sqrt(mean ‖R P_k + t − Q_k‖²)`; rank check: empty if the second singular value is below
+1e-9 times the first.
 
 Errors: translation = Euclidean distance of the positions; rotation = angle of `R_ref⁻¹ · R`; both in the map frame,
 without alignment. The reference is `slam_poses.csv` of the mapping run (the same run that saved the map).
@@ -436,7 +454,7 @@ In `--out-dir`:
 | `queries.csv` | one row per query (columns below) |
 | `attempts.csv` | `query, attempt, call_ts_ns, frame_ts_ns, t_from_t1_s, prior_err_t_m, prior_err_r_deg, gravity_used, ok, latency_ms, message` |
 | `post_localization.csv` | `query, timestamp_ns, t_from_loc_s, x, y, z, qx, qy, qz, qw, err_t_m, err_r_deg`: published pose from S to t2 and its error |
-| `localize_info.json` | bag, map run, launch, t1 list, t_prev, duration, attempts, `attempt_every_s`, thresholds, `g_map`, `imu_window_s`, `stall_timeout_s` |
+| `localize_info.json` | configuration, bag, map run, launch, t1 list, t_prev, duration, attempts, `attempt_every_s`, thresholds, `g_map`, `imu_window_s`, `stall_timeout_s` |
 | `q<NNN>/bag/` | MCAP recording of the query |
 | `q<NNN>/trace.csv` | `timestamp_ns, recv_ns, odom_x, odom_y, odom_z, odom_qx, odom_qy, odom_qz, odom_qw, pub_x … pub_qw` (pub empty without `map->odom` at that stamp) |
 | `q<NNN>/node_log.txt` | `<recv ns> <message>` of `visual_slam_node` |
@@ -458,6 +476,7 @@ Columns of `queries.csv`:
 | `pub_err_t_m_1s`, `pub_err_r_deg_1s`, `pub_err_t_m_2s`, `pub_err_r_deg_2s` | published error ≥ 1 s and ≥ 2 s after L |
 | `first_attempt_latency_ms`, `ok_attempt_latency_ms` | call → result, wall time |
 | `post_frames`, `post_rmse_t_m`, `post_max_err_t_m`, `post_final_err_t_m`, `post_final_err_r_deg` | errors from S to t2 |
+| `post_duration_s`, `post_rmsd_aligned_m` | duration of the segment S → t2 and RMSD after rigid alignment |
 | `frames_tracked`, `query_wall_s`, `stalled` | odometry messages, wall time, stopped for lack of odometry |
 
 Standard output: one line per query, e.g.
@@ -510,24 +529,38 @@ the successful attempt: median 183 ms (medians per capture and t_prev between 74
 - All the queries of a run share one ROS domain: two runs of `localize_query.py` must not run at the same time in the
   same domain (they would see each other's `visual_slam_node`).
 - The docstring of `cuvslam_stereo_imu_cam2_localize.launch.py` mentions verbosity 3, but the file sets `verbosity: 1`.
+- `cam1_cam2_stereo`: each multicamera frame is stamped by Isaac ROS with the header of the cam1 OR of the cam2 image,
+  differently in the mapping run and in the queries, so the reference is interpolated at the frame stamp
+  (`--ref-interp-ms 200`); without it, captures whose cam1–cam2 offset is above 2 ms lose the reference (all the
+  queries of build_out_in and outdoor_b_2000 were FP with no error in the first evaluation).
+- `cam1_cam2_stereo`: the header offset of the converted captures is measured on `/cam2/infra1` only; cam1 has the same
+  offset as cam2 in all 11 captures (within 4 ms), so t1 is the same for both cameras. cam1 and cam2 are not hardware
+  synchronized: the node drops the frames whose images are more than 35 ms apart, so a session tracks fewer frames than
+  with `cam2_stereo_imu` (e.g. 12 instead of 14 per second on loop_closure).
 
 ## 15. How to run, and --reevaluate
 
 From the host (the data folder `~/dotlumen` is mounted at `/workspaces/isaac_ros-dev`, paths relative to it):
 
 ```bash
+# cam2 stereo + IMU (default configuration)
 docker run --rm --gpus all --ipc=host --user $(id -u):$(id -g) -e HOME=/tmp -e ROS_LOG_DIR=/tmp/roslog \
   -v ~/dotlumen:/workspaces/isaac_ros-dev -w /workspaces/isaac_ros-dev cached_isaac_run_dev_image_local \
   bash -c 'source /opt/ros/lyrical/setup.bash; python3 VRHealth_Challenge13/isaac_ros_5/launch/localize_query.py \
-   --bag Captures/mcap/9_Loop_closure/loop_closure --map-run localization/isaac_maps/loop_closure \
-   --out-dir localization/isaac_localize/loop_closure'
+   --bag Captures/mcap/9_Loop_closure/loop_closure --map-run localization/isaac_maps/cam2_stereo_imu/loop_closure \
+   --out-dir localization/isaac_localize/cam2_stereo_imu/loop_closure'
+# cam1 + cam2 stereo, default paths localization/isaac_{maps,localize}/cam1_cam2_stereo/loop_closure
+docker run --rm --gpus all --ipc=host --user $(id -u):$(id -g) -e HOME=/tmp -e ROS_LOG_DIR=/tmp/roslog \
+  -v ~/dotlumen:/workspaces/isaac_ros-dev -w /workspaces/isaac_ros-dev cached_isaac_run_dev_image_local \
+  bash -c 'source /opt/ros/lyrical/setup.bash; python3 VRHealth_Challenge13/isaac_ros_5/launch/localize_query.py \
+   --config cam1_cam2_stereo --capture loop_closure --bag Captures/mcap/9_Loop_closure/loop_closure'
 ```
 
 - `--user`, `HOME=/tmp`, `ROS_LOG_DIR=/tmp/roslog`: files are written with the host user, ROS logs go to a writable
   place.
 - `--ipc=host`: shared memory for the ROS 2 transport between player, node and recorder.
-- The map must exist (`map_cam2.sh`) and `--map-run` must point to the folder with `map/`, `odometry.csv` and
-  `slam_poses.csv`.
+- The map must exist (`map_cam2.sh` with the same `CONFIG`) and `--map-run` must point to the folder with `map/`,
+  `odometry.csv` and `slam_poses.csv`.
 - Short test: add `--t1 20 35 --t-prev 0 3` (4 queries) and another `--out-dir`.
 - Short captures: `--duration 5` (outdoor_b_2000).
 
@@ -537,8 +570,7 @@ docker run --rm --gpus all --ipc=host --user $(id -u):$(id -g) -e HOME=/tmp -e R
 docker run --rm --gpus all --ipc=host --user $(id -u):$(id -g) -e HOME=/tmp -e ROS_LOG_DIR=/tmp/roslog \
   -v ~/dotlumen:/workspaces/isaac_ros-dev -w /workspaces/isaac_ros-dev cached_isaac_run_dev_image_local \
   bash -c 'source /opt/ros/lyrical/setup.bash; python3 VRHealth_Challenge13/isaac_ros_5/launch/localize_query.py \
-   --bag Captures/mcap/9_Loop_closure/loop_closure --map-run localization/isaac_maps/loop_closure \
-   --out-dir localization/isaac_localize/loop_closure --reevaluate'
+   --config cam2_stereo_imu --capture loop_closure --bag Captures/mcap/9_Loop_closure/loop_closure --reevaluate'
 ```
 
 `--reevaluate` reads `queries.csv` and `attempts.csv`, removes the localization columns of every row, runs

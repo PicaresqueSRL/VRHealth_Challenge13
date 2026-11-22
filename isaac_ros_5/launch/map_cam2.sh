@@ -1,6 +1,9 @@
 #!/bin/bash
-# map_cam2.sh - Runs Isaac ROS cuVSLAM (cam2 IR stereo + IMU) on one or more bags at real-time speed, records the
-# output topics (as slam_cam2.sh) and SAVES THE cuVSLAM MAP of each run with the visual_slam/save_map service.
+# map_cam2.sh - Runs Isaac ROS cuVSLAM on one or more bags at real-time speed, records the output topics (as
+# slam_cam2.sh / slam_cam1_cam2.sh) and SAVES THE cuVSLAM MAP of each run with the visual_slam/save_map service.
+# Input configuration (CONFIG):
+#   cam2_stereo_imu   (default) cam2 IR stereo + cam2 IMU, cuvslam_stereo_imu_cam2_map.launch.py
+#   cam1_cam2_stereo  cam2 + cam1 IR stereo, multicamera, no IMU, sync_ms 35, cuvslam_stereo_cam1_cam2_map.launch.py
 #
 # Two ways to run it:
 #   on the host (one throwaway container per bag, image with ROS 2 Lyrical + Isaac ROS 5.0):
@@ -11,23 +14,31 @@
 #   e.g.  loop_closure=lyrical/workspaces/isaac_ros-dev/bags/loop_closure
 #
 # Environment variables:
+#   CONFIG=cam2_stereo_imu                   input configuration: cam2_stereo_imu or cam1_cam2_stereo
 #   IMAGE=cached_isaac_run_dev_image_local   Docker image (host mode)
 #   DATA=$HOME/dotlumen                      data folder, mounted at /workspaces/isaac_ros-dev
-#   OUT_ROOT=localization/isaac_maps         output folder (relative to the data folder)
+#   OUT_ROOT=localization/isaac_maps/<CONFIG>  output folder (relative to the data folder)
+#   LAUNCH=<container path>                  launch file (default: the one of CONFIG)
 #   SETTLE_S=5                               seconds to wait after the end of the playback before saving the map
 #   FORCE=1                                  redo captures already done
 #
-# Output, for each capture (OUT_ROOT/<capture>/):
+# Output, for each capture (OUT_ROOT/<capture>/, default localization/isaac_maps/<CONFIG>/<capture>/):
 #   map/                 cuVSLAM map saved by Isaac ROS (data.mdb)
 #   bag/                 MCAP recording of the cuVSLAM output topics
 #   odometry.csv, vo_path.csv, slam_poses.csv, status.csv   extracted with extract_paths.py (same format as slam_csv)
 #   run_info.json        parameters, versions, durations, map size, save time
 #   launch.log, record.log, play.log, save_map.log, extract.log
 #
-# Uses cuvslam_stereo_imu_cam2_map.launch.py (same parameters as the slam_csv runs, plus slam_max_map_size large and
-# visualization off). Does not modify slam_cam2.sh or the other launch files.
+# The launch of each CONFIG has the same parameters as the slam_csv runs of that configuration
+# (cuvslam_stereo_imu_cam2.launch.py / cuvslam_stereo_cam1_cam2.launch.py), plus slam_max_map_size large and
+# visualization off. Does not modify slam_cam2.sh, slam_cam1_cam2.sh or the other launch files.
 set -u
 
+CONFIG=${CONFIG:-cam2_stereo_imu}
+case "$CONFIG" in
+  cam2_stereo_imu|cam1_cam2_stereo) ;;
+  *) echo "Unknown CONFIG=$CONFIG (cam2_stereo_imu or cam1_cam2_stereo)"; exit 1 ;;
+esac
 WS=/workspaces/isaac_ros-dev
 SELF=$(readlink -f "$0")
 LAUNCH_DIR=$(dirname "$SELF")
@@ -42,7 +53,7 @@ if [ "${IN_CONTAINER:-0}" != 1 ]; then
   for spec in "$@"; do
     docker run --rm --gpus all --ipc=host --user "$(id -u):$(id -g)" \
       -e IN_CONTAINER=1 -e HOME=/tmp -e ROS_LOG_DIR=/tmp/roslog -e ROS_DOMAIN_ID=$((RANDOM % 100 + 100)) \
-      -e LAUNCH="${LAUNCH:-}" -e OUT_ROOT="${OUT_ROOT:-localization/isaac_maps}" -e SETTLE_S="${SETTLE_S:-5}" -e FORCE="${FORCE:-0}" \
+      -e CONFIG="$CONFIG" -e LAUNCH="${LAUNCH:-}" -e OUT_ROOT="${OUT_ROOT:-localization/isaac_maps/$CONFIG}" -e SETTLE_S="${SETTLE_S:-5}" -e FORCE="${FORCE:-0}" \
       -e IMAGE="$IMAGE" -v "$DATA:$WS" -w "$WS" "$IMAGE" bash "$IN_SELF" "$spec" || rc=$?
   done
   exit $rc
@@ -50,17 +61,26 @@ fi
 
 # ----------------------------------------------------------------------------- container mode
 set +u; source /opt/ros/*/setup.bash; set -u
-LAUNCH=${LAUNCH:-$LAUNCH_DIR/cuvslam_stereo_imu_cam2_map.launch.py}
 EXTRACT=$LAUNCH_DIR/extract_paths.py
-OUT_ROOT=$WS/${OUT_ROOT:-localization/isaac_maps}
+OUT_ROOT=$WS/${OUT_ROOT:-localization/isaac_maps/$CONFIG}
 SETTLE_S=${SETTLE_S:-5}
 FORCE=${FORCE:-0}
 
-PLAY_TOPICS=(
+CAM2_TOPICS=(
   /cam2/infra1/image_rect_raw /cam2/infra1/camera_info
   /cam2/infra2/image_rect_raw /cam2/infra2/camera_info
-  /cam2/imu /tf_static
 )
+CAM1_TOPICS=(
+  /cam1/infra1/image_rect_raw /cam1/infra1/camera_info
+  /cam1/infra2/image_rect_raw /cam1/infra2/camera_info
+)
+if [ "$CONFIG" = cam1_cam2_stereo ]; then
+  LAUNCH=${LAUNCH:-$LAUNCH_DIR/cuvslam_stereo_cam1_cam2_map.launch.py}
+  PLAY_TOPICS=("${CAM2_TOPICS[@]}" "${CAM1_TOPICS[@]}" /tf_static)    # no IMU
+else
+  LAUNCH=${LAUNCH:-$LAUNCH_DIR/cuvslam_stereo_imu_cam2_map.launch.py}
+  PLAY_TOPICS=("${CAM2_TOPICS[@]}" /cam2/imu /tf_static)
+fi
 RECORD_TOPICS=(
   /visual_slam/tracking/odometry
   /visual_slam/tracking/vo_path
@@ -105,7 +125,7 @@ for spec in "$@"; do
   [ -e "$BAG" ] || { echo "[$NAME] ERROR: bag not found: $BAG"; continue; }
   rm -rf "$DIR"; mkdir -p "$DIR"
   T0=$(date +%s.%N)
-  echo "[$NAME] cuVSLAM mapping run, bag $BAG"
+  echo "[$NAME] cuVSLAM mapping run ($CONFIG), bag $BAG"
 
   setsid ros2 launch "$LAUNCH" > "$DIR/launch.log" 2>&1 < /dev/null &
   LAUNCH_PID=$!
@@ -160,7 +180,7 @@ def cuvslam_version():
         if m:
             return m.group().decode()
 info = {
-    "script": "map_cam2.sh", "capture": "$NAME", "bag": "$BAG", "launch": "$LAUNCH",
+    "script": "map_cam2.sh", "config": "$CONFIG", "capture": "$NAME", "bag": "$BAG", "launch": "$LAUNCH",
     "image": "${IMAGE:-}", "ros_distro": "${ROS_DISTRO:-}",
     "isaac_ros_cuvslam_version": pkgver("isaac_ros_cuvslam"), "cuvslam_version": cuvslam_version(),
     "play_topics": "${PLAY_TOPICS[*]}".split(), "record_topics": "${RECORD_TOPICS[*]}".split(),

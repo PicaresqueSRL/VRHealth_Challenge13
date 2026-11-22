@@ -9,24 +9,24 @@
 <text x="85" y="58" text-anchor="middle">capture bag (MCAP)</text><text x="85" y="73" text-anchor="middle" fill="#666">Captures/mcap/...</text>
 <rect x="200" y="35" width="260" height="58" rx="6" fill="#dbe9f7" stroke="#3d6fa3"/>
 <text x="330" y="54" text-anchor="middle" font-weight="bold">map_cam2.sh</text>
-<text x="330" y="69" text-anchor="middle">+ cuvslam_stereo_imu_cam2_map.launch.py</text>
-<text x="330" y="84" text-anchor="middle" fill="#555">(or LAUNCH=..._map_noimu.launch.py)</text>
+<text x="330" y="69" text-anchor="middle">CONFIG: cam2 + IMU or cam1 + cam2</text>
+<text x="330" y="84" text-anchor="middle" fill="#555">(map launch of CONFIG, or LAUNCH=...)</text>
 <rect x="200" y="113" width="260" height="58" rx="6" fill="#fff" stroke="#888"/>
-<text x="330" y="130" text-anchor="middle" font-weight="bold">isaac_maps/&lt;capture&gt;/</text>
+<text x="330" y="130" text-anchor="middle" font-weight="bold">isaac_maps/&lt;config&gt;/&lt;capture&gt;/</text>
 <text x="330" y="145" text-anchor="middle">map/data.mdb, odometry.csv (prior),</text>
 <text x="330" y="160" text-anchor="middle">slam_poses.csv (reference), run_info.json</text>
 <rect x="200" y="191" width="260" height="44" rx="6" fill="#dbe9f7" stroke="#3d6fa3"/>
 <text x="330" y="209" text-anchor="middle" font-weight="bold">localize_query.py</text>
-<text x="330" y="224" text-anchor="middle">+ cuvslam_stereo_imu_cam2_localize.launch.py</text>
+<text x="330" y="224" text-anchor="middle">--config: localize launch + topics</text>
 <rect x="200" y="250" width="260" height="34" rx="6" fill="#fff" stroke="#888"/>
-<text x="330" y="264" text-anchor="middle" font-weight="bold">isaac_localize/&lt;capture&gt;/</text>
+<text x="330" y="264" text-anchor="middle" font-weight="bold">isaac_localize/&lt;config&gt;/&lt;capture&gt;/</text>
 <text x="330" y="278" text-anchor="middle">queries/attempts/post_localization.csv, qNNN/</text>
 <rect x="500" y="191" width="240" height="44" rx="6" fill="#e9e1f7" stroke="#6a4fa3"/>
 <text x="620" y="209" text-anchor="middle" font-weight="bold">isaac_localize_rerun.py</text>
-<text x="620" y="224" text-anchor="middle">rerun/&lt;capture&gt;.rrd</text>
+<text x="620" y="224" text-anchor="middle">rerun/&lt;config&gt;/&lt;capture&gt;.rrd</text>
 <rect x="500" y="250" width="240" height="34" rx="6" fill="#e9e1f7" stroke="#6a4fa3"/>
 <text x="620" y="264" text-anchor="middle" font-weight="bold">isaac_localize_summary.py</text>
-<text x="620" y="278" text-anchor="middle">summary.md / summary.csv (all captures)</text>
+<text x="620" y="278" text-anchor="middle">summary per config + comparison.md</text>
 <rect x="500" y="40" width="240" height="44" rx="6" fill="#fff" stroke="#888"/>
 <text x="620" y="58" text-anchor="middle">capture bag (IR images)</text><text x="620" y="73" text-anchor="middle" fill="#666">read with bag2edex.py</text>
 <g stroke="#555" fill="none" marker-end="url(#a)">
