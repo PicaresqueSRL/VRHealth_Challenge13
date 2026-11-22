@@ -26,14 +26,18 @@ All poses are cam2_link poses in the map frame of the mapping run (ROS axes: x f
                                  light purple arrows), error_lines (published -> reference); labels "q<N>" = query
                                  number of queries.csv. Shown in the "overview" tab, hidden in the "map" tab.
   world/rig                      current pose (published after localization, prior before) with the IR image
-Left: IR image (every --image-every frames), published error vs reference, event log (node log + query results).
+Left: IR image (every --image-every frames; with --config cam1_cam2_stereo also the cam1 infra1 image closest in time,
+within 50 ms, in a second panel), published error vs reference, event log (node log + query results).
 Timelines: 'step' (queries one after the other), 'query', 'time' (capture time, s).
 
 Usage (vrhealth-cuvslam image or venv with rerun-sdk 0.33):
-  python3 isaac_localize_rerun.py --localize ~/dotlumen/localization/isaac_localize/loop_closure \
-      --map-run ~/dotlumen/localization/isaac_maps/loop_closure \
+  python3 isaac_localize_rerun.py --localize ~/dotlumen/localization/isaac_localize/cam2_stereo_imu/loop_closure \
+      --map-run ~/dotlumen/localization/isaac_maps/cam2_stereo_imu/loop_closure \
       --bag ~/dotlumen/Captures/mcap/9_Loop_closure/loop_closure \
-      --save ~/dotlumen/localization/rerun/loop_closure.rrd --image-every 5
+      --save ~/dotlumen/localization/rerun/cam2_stereo_imu/loop_closure.rrd --image-every 5
+  or, with the default paths (<root>/<config>/<capture>, roots set by --localization-root):
+  python3 isaac_localize_rerun.py --config cam1_cam2_stereo --capture loop_closure \
+      --bag ~/dotlumen/Captures/mcap/9_Loop_closure/loop_closure --image-every 5
 """
 import argparse
 import bisect
@@ -53,6 +57,8 @@ from bag2edex import Bag, decode_image, header_stamp, image_to_cv  # noqa: E402
 
 NS = 1_000_000_000
 IMAGE_TOPIC = "/cam2/infra1/image_rect_raw"
+CAM1_IMAGE_TOPIC = "/cam1/infra1/image_rect_raw"
+CONFIGS = ("cam2_stereo_imu", "cam1_cam2_stereo")
 C_REF, C_ODOM, C_CUT, C_PRIOR, C_ATT = [190, 60, 210], [150, 150, 150], [240, 200, 40], [255, 140, 0], [240, 220, 60]
 C_TP, C_FP = [40, 200, 80], [235, 50, 50]
 C_REF_LIGHT = [210, 160, 225]
@@ -73,11 +79,34 @@ def mat(t, q):
     return T
 
 
+def rot_to_quat(R):
+    w = math.sqrt(max(0.0, 1 + R[0, 0] + R[1, 1] + R[2, 2])) / 2
+    x = math.copysign(math.sqrt(max(0.0, 1 + R[0, 0] - R[1, 1] - R[2, 2])) / 2, R[2, 1] - R[1, 2])
+    y = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] + R[1, 1] - R[2, 2])) / 2, R[0, 2] - R[2, 0])
+    z = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] - R[1, 1] + R[2, 2])) / 2, R[1, 0] - R[0, 1])
+    return [x, y, z, w]
+
+
+def interpolate(T0, T1, a):
+    """Pose between T0 (a = 0) and T1 (a = 1): linear position, slerp rotation (as localize_query.py)."""
+    q0, q1 = np.array(rot_to_quat(T0[:3, :3])), np.array(rot_to_quat(T1[:3, :3]))
+    if q0 @ q1 < 0:
+        q1 = -q1
+    th = math.acos(float(np.clip(q0 @ q1, -1.0, 1.0)))
+    q = q0 * (1 - a) + q1 * a if th < 1e-6 else (math.sin((1 - a) * th) * q0 + math.sin(a * th) * q1) / math.sin(th)
+    return mat(T0[:3, 3] * (1 - a) + T1[:3, 3] * a, q)
+
+
 class Trajectory:
-    def __init__(self, path):
+    """Pose CSV; at(ts): closest pose within 2 ms, else (interp_gap_ns > 0) interpolated between the poses around ts
+    if at most interp_gap_ns apart: same rule as localize_query.py (cam1_cam2_stereo frames are stamped with the cam1
+    or the cam2 header, differently in each run)."""
+
+    def __init__(self, path, interp_gap_ns=0):
         rows = list(csv.DictReader(open(path)))
         self.ts = [int(round(float(r["timestamp"]) * NS)) for r in rows]
         self.T = [mat([float(r[k]) for k in "xyz"], [float(r[k]) for k in ("qx", "qy", "qz", "qw")]) for r in rows]
+        self.interp_gap_ns = interp_gap_ns
 
     def last_before(self, ts):
         i = bisect.bisect_right(self.ts, ts) - 1
@@ -87,7 +116,11 @@ class Trajectory:
         i = bisect.bisect_left(self.ts, ts)
         c = [j for j in (i - 1, i) if 0 <= j < len(self.ts)]
         j = min(c, key=lambda j: abs(self.ts[j] - ts)) if c else None
-        return self.T[j] if j is not None and abs(self.ts[j] - ts) <= tol else None
+        if j is not None and abs(self.ts[j] - ts) <= tol:
+            return self.T[j]
+        if self.interp_gap_ns > 0 and 0 < i < len(self.ts) and self.ts[i] - self.ts[i - 1] <= self.interp_gap_ns:
+            return interpolate(self.T[i - 1], self.T[i], (ts - self.ts[i - 1]) / (self.ts[i] - self.ts[i - 1]))
+        return None
 
 
 def read_trace(path):
@@ -109,17 +142,33 @@ def arrow(path, T, color, label=None, length=0.5):
                              radii=-3.0, labels=[label] if label else None))
 
 
-def load_images(bag_path, stamps):
-    """IR images (infra1) whose header stamp is in `stamps`, decoded to grayscale arrays."""
-    need, out = set(stamps), {}
-    for _, _, _, data in Bag(bag_path).iterate({IMAGE_TOPIC}):
+def gray(data):
+    img = image_to_cv(decode_image(data))
+    return np.ascontiguousarray(img if img.ndim == 2 else img[..., 0])
+
+
+def load_images(bag_path, stamps, cam1=False, tol_ns=50_000_000):
+    """IR images (cam2 infra1) whose header stamp is in `stamps`, decoded to grayscale arrays. With cam1=True also
+    {stamp: cam1 infra1 image with the closest header stamp, within tol_ns} (cam1 and cam2 are not synchronized)."""
+    need, out, out1, best1 = set(stamps), {}, {}, {}
+    want = sorted(need)
+    topics = {IMAGE_TOPIC, CAM1_IMAGE_TOPIC} if cam1 else {IMAGE_TOPIC}
+    for topic, _, _, data in Bag(bag_path).iterate(topics):
         st = header_stamp(data[:12])
-        if st in need:
-            img = image_to_cv(decode_image(data))
-            out[st] = np.ascontiguousarray(img if img.ndim == 2 else img[..., 0])
-            if len(out) == len(need):
-                break
-    return out
+        if topic == IMAGE_TOPIC:
+            if st in need:
+                out[st] = gray(data)
+                if not cam1 and len(out) == len(need):
+                    break
+            continue
+        i = bisect.bisect_left(want, st)
+        for j in (i - 1, i):
+            if 0 <= j < len(want):
+                d = abs(want[j] - st)
+                if d <= tol_ns and d < best1.get(want[j], tol_ns + 1):
+                    best1[want[j]] = d
+                    out1[want[j]] = gray(data)
+    return out, out1
 
 
 def snap(rows, ts):
@@ -190,16 +239,35 @@ def log_overview(queries, results):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--localize", required=True, help="output folder of localize_query.py")
-    ap.add_argument("--map-run", required=True, help="folder of map_cam2.sh (odometry.csv, slam_poses.csv)")
+    ap.add_argument("--config", choices=CONFIGS, default="cam2_stereo_imu",
+                    help="input configuration (cam1_cam2_stereo adds the cam1 image panel) and default paths")
+    ap.add_argument("--capture", default=None, help="capture name, for the default paths")
+    ap.add_argument("--localization-root", default="~/dotlumen/localization",
+                    help="root of isaac_localize/, isaac_maps/, rerun/ for the default paths")
+    ap.add_argument("--localize", default=None,
+                    help="output folder of localize_query.py (default <root>/isaac_localize/<config>/<capture>)")
+    ap.add_argument("--map-run", default=None,
+                    help="folder of map_cam2.sh (odometry.csv, slam_poses.csv) (default <root>/isaac_maps/<config>/<capture>)")
     ap.add_argument("--bag", required=True, help="capture bag (for the IR images)")
-    ap.add_argument("--save", required=True, help="output .rrd")
+    ap.add_argument("--save", default=None, help="output .rrd (default <root>/rerun/<config>/<capture>.rrd)")
     ap.add_argument("--image-every", type=int, default=5)
     ap.add_argument("--thr-t", type=float, default=0.3)
+    ap.add_argument("--ref-interp-ms", type=float, default=None,
+                    help="reference interpolation (as localize_query.py): default 0 for cam2_stereo_imu, "
+                         "200 for cam1_cam2_stereo")
     ap.add_argument("--warning", default=None, help="warning shown in the events panel at the start (e.g. unreliable map)")
     args = ap.parse_args()
+    root = os.path.expanduser(args.localization_root)
+    for key, sub in (("localize", "isaac_localize"), ("map_run", "isaac_maps"), ("save", "rerun")):
+        if getattr(args, key) is None:
+            if not args.capture:
+                ap.error(f"--{key.replace('_', '-')} or --capture is required")
+            setattr(args, key, os.path.join(root, sub, args.config, args.capture + (".rrd" if key == "save" else "")))
+    cam1 = args.config == "cam1_cam2_stereo"
 
-    ref = Trajectory(os.path.join(args.map_run, "slam_poses.csv"))
+    if args.ref_interp_ms is None:
+        args.ref_interp_ms = 200.0 if cam1 else 0.0
+    ref = Trajectory(os.path.join(args.map_run, "slam_poses.csv"), int(args.ref_interp_ms * 1e6))
     odom_map = Trajectory(os.path.join(args.map_run, "odometry.csv"))
     queries = list(csv.DictReader(open(os.path.join(args.localize, "queries.csv"))))
     attempts = list(csv.DictReader(open(os.path.join(args.localize, "attempts.csv"))))
@@ -218,15 +286,19 @@ def main():
             step += 1
             if step % args.image_every == 0:
                 want.append(row[0])
-    images = load_images(args.bag, want)
-    print(f"{len(queries)} queries, {len(want)} images", file=sys.stderr)
+    images, images1 = load_images(args.bag, want, cam1)
+    print(f"{len(queries)} queries, {len(want)} images" + (f", {len(images1)} cam1 images" if cam1 else ""),
+          file=sys.stderr)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.save)), exist_ok=True)
-    rr.init("Isaac ROS relocalization")
+    rr.init("Isaac ROS relocalization" + (" (cam1 + cam2 stereo)" if cam1 else ""))
     rr.save(args.save)
+    image_views = rrb.Spatial2DView(name="cam2 infra1", origin="camera")
+    if cam1:
+        image_views = rrb.Horizontal(image_views, rrb.Spatial2DView(name="cam1 infra1", origin="camera_cam1"))
     rr.send_blueprint(rrb.Blueprint(
         rrb.Horizontal(
-            rrb.Vertical(rrb.Spatial2DView(name="cam2 infra1", origin="camera"),
+            rrb.Vertical(image_views,
                          rrb.Horizontal(rrb.TimeSeriesView(name="published error", origin="errors"),
                                         rrb.TextLogView(name="events", origin="events")), row_shares=[1, 1]),
             rrb.Tabs(rrb.Spatial3DView(name="map", origin="world", contents=["+ /world/**", "- /world/overview/**"]),
@@ -334,6 +406,8 @@ def main():
                 rr.log("world/query/reference_now", rr.Points3D([T_ref[:3, 3]], colors=[C_REF], radii=-7.0))
             if ts in images:
                 rr.log("camera", rr.Image(images[ts]).compress(jpeg_quality=75))
+            if ts in images1:
+                rr.log("camera_cam1", rr.Image(images1[ts]).compress(jpeg_quality=75))
 
         if q["localized"] == "True":
             rr.log("events", rr.TextLog(
