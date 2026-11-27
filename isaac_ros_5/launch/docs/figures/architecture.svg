@@ -17,7 +17,7 @@
 <text x="22" y="267">--playback-duration duration + 0.1</text>
 <text x="22" y="282">/cam2/infra{1,2}/image_rect_raw</text>
 <text x="22" y="297">/cam2/infra{1,2}/camera_info</text>
-<text x="22" y="312">/cam2/imu (real-time rate)</text>
+<text x="22" y="312">/cam2/imu | /cam1/infra{1,2}/... (--config)</text>
 <rect x="275" y="215" width="230" height="110" rx="8" fill="#e2f3e2" stroke="#3f8f45"/>
 <text x="390" y="233" text-anchor="middle" font-weight="bold">ros2 launch (subprocess)</text>
 <text x="390" y="250" text-anchor="middle">component_container_mt</text>

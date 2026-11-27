@@ -1,16 +1,16 @@
 # SLAM vs. Ground Truth Trajectory Alignment & SVG Visualization Toolkit
 
-This repository provides a suite of Python scripts to extract 2D/3D ground-truth trajectories from floorplan SVG files, align 3D SLAM odometry trajectories onto the ground truth using a bidirectional Iterative Closest Point (ICP) algorithm, log quantitative trajectory error metrics, visually overlay the aligned SLAM paths onto the original SVG floorplans, and aggregate batch evaluation logs into a summary CSV[cite: 12, 13].
+This repository provides a suite of Python scripts to extract 2D/3D ground-truth trajectories from floorplan SVG files, align 3D SLAM odometry trajectories onto the ground truth using a bidirectional Iterative Closest Point (ICP) algorithm, log quantitative trajectory error metrics, visually overlay the aligned SLAM paths onto the original SVG floorplans, and aggregate batch evaluation logs into a summary CSV.
 
 ---
 
 ## Overview of the Automated Pipeline (`RunBatchPipeline.py`)
 
-`RunBatchPipeline.py` automates the comparison between SLAM trajectories and ground-truth floorplan paths across multiple dataset folders[cite: 2, 13]:
+`RunBatchPipeline.py` automates the comparison between SLAM trajectories and ground-truth floorplan paths across multiple dataset folders:
 
-1. **Directory Matching**: It scans all subdirectories inside a **Target Root Folder** (which holds the ground-truth `paths3d.csv` and the floorplan `.svg`) and pairs each subfolder with the identically named subdirectory inside a **Source Root Folder** (which holds the SLAM trajectory `slam_poses.csv`)[cite: 2, 13].
-2. **Trajectory Alignment (`IcpAlign.py`)**: It aligns the SLAM path (`slam_poses.csv`) to the ground-truth path (`paths3d.csv`) using rigid ICP (`--no-scale`), outputting the transformed coordinates to `aligned_odometry.csv` and writing detailed alignment error metrics to `alignment_results.log`[cite: 2, 13].
-3. **Visual SVG Overlay (`AddAlignedOdometryToSvg.py`)**: It projects the aligned SLAM trajectory back into the metric scale of the original floorplan SVG and adds a new `odometry` layer containing a green polyline (`#00FF00`), saving the visual comparison as `<input_svg_stem>_with_odometry.svg`[cite: 2, 4, 13].
+1. **Directory Matching**: It scans all subdirectories inside a **Target Root Folder** (which holds the ground-truth `paths3d.csv` and the floorplan `.svg`) and pairs each subfolder with the identically named subdirectory inside a **Source Root Folder** (which holds the SLAM trajectory `slam_poses.csv`).
+2. **Trajectory Alignment (`IcpAlign.py`)**: It aligns the SLAM path (`slam_poses.csv`) to the ground-truth path (`paths3d.csv`) using rigid ICP (`--no-scale`), outputting the transformed coordinates to `aligned_odometry.csv` and writing detailed alignment error metrics to `alignment_results.log`.
+3. **Visual SVG Overlay (`AddAlignedOdometryToSvg.py`)**: It projects the aligned SLAM trajectory back into the metric scale of the original floorplan SVG and adds a new `odometry` layer containing a green polyline (`#00FF00`), saving the visual comparison as `<input_svg_stem>_with_odometry.svg`.
 
 ---
 
@@ -18,14 +18,14 @@ This repository provides a suite of Python scripts to extract 2D/3D ground-truth
 
 ### 1. `ExtractRawPathsFromSvg.py`
 
-Extracts 2D ground-truth paths from an SVG file and converts coordinates from SVG pixels to meters[cite: 6, 13].
+Extracts 2D ground-truth paths from an SVG file and converts coordinates from SVG pixels to meters.
 
 **How it works**:
-* Reads the reference line inside the `MISURA` layer and equates its Euclidean pixel length to **5.0 meters** to compute the `meters_per_unit` scale factor[cite: 6, 13].
-* Iterates through each `<g>` group (subpath) inside the `PERCORSI` layer[cite: 6, 13].
-* Identifies the starting marker in each subpath by finding the circle (`<circle>`, `<ellipse>`, or closed curve `<path>`) with a unique CSS `class`, `fill`, or `style` attribute[cite: 6, 13].
-* Orders all `<line>`, `<polyline>`, and `<path>` vertices sequentially starting from the endpoint closest to the starting circle, assigning an incremental `SUBPATH` ID starting from `0`[cite: 6, 13].
-* Exports an unquoted, comma-delimited CSV (`<input_name>.csv`) with columns `X,Y,SUBPATH`[cite: 6, 13].
+* Reads the reference line inside the `MISURA` layer and equates its Euclidean pixel length to **5.0 meters** to compute the `meters_per_unit` scale factor.
+* Iterates through each `<g>` group (subpath) inside the `PERCORSI` layer.
+* Identifies the starting marker in each subpath by finding the circle (`<circle>`, `<ellipse>`, or closed curve `<path>`) with a unique CSS `class`, `fill`, or `style` attribute.
+* Orders all `<line>`, `<polyline>`, and `<path>` vertices sequentially starting from the endpoint closest to the starting circle, assigning an incremental `SUBPATH` ID starting from `0`.
+* Exports an unquoted, comma-delimited CSV (`<input_name>.csv`) with columns `X,Y,SUBPATH`.
 
 **Usage**:
 ```bash

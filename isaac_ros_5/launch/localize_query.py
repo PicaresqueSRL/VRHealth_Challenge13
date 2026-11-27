@@ -2,8 +2,13 @@
 """
 localize_query.py - Relocalization queries with Isaac ROS cuVSLAM (visual_slam/localize_in_map) during bag playback.
 
-Runs inside the Isaac ROS container (ROS 2 Lyrical, isaac_ros_cuvslam 5.0). For every query (t1, t_prev):
-  1. starts a NEW visual_slam_node (cuvslam_stereo_imu_cam2_localize.launch.py): new session, no map;
+Runs inside the Isaac ROS container (ROS 2 Lyrical, isaac_ros_cuvslam 5.0). Input configuration (--config):
+  cam2_stereo_imu   (default) cam2 IR stereo + cam2 IMU: cuvslam_stereo_imu_cam2_localize.launch.py, plays cam2 IR,
+                    camera_info and /cam2/imu;
+  cam1_cam2_stereo  cam2 + cam1 IR stereo, multicamera, no IMU (sync_ms 35, static TF cam2_link -> cam1_link in the
+                    launch): cuvslam_stereo_cam1_cam2_localize.launch.py, plays cam2 and cam1 IR and camera_info.
+The map must come from map_cam2.sh with the same CONFIG. For every query (t1, t_prev):
+  1. starts a NEW visual_slam_node (launch of --config): new session, no map;
   2. republishes /tf_static of the bag (latched) and plays the cut [t1 - 0.1 s, t1 + duration] at real-time speed;
   3. prior = last pose of the mapping run odometry.csv with timestamp <= t1 - t_prev (T_last), composed with the
      odometry of the new session since its first frame: prior_k = T_last * O_first^-1 * O_k (cam2_link poses);
@@ -14,14 +19,20 @@ Runs inside the Isaac ROS container (ROS 2 Lyrical, isaac_ros_cuvslam 5.0). For 
      map->odom TF of the localization appears a few frames after the localized frame: the localized pose is taken at
      the first frame with the new map->odom (tf_update_delay_s); loc_log_err_t_m is the error of the position logged
      by the node at the localized frame;
-  6. errors against slam_poses.csv of the mapping run (same map frame, cam2_link, no alignment).
-Optional (--g-map, off by default): roll/pitch of each prior taken from the accelerometer (mean of the last
+  6. errors against slam_poses.csv of the mapping run (same map frame, cam2_link, no alignment); on the segment from
+     the settled frame to t2 also post_rmsd_aligned_m: RMSD of the published positions after the best rigid
+     alignment (rotation + translation, no scale) onto the reference positions of the same frames.
+Optional (--g-map, off by default, cam2_stereo_imu only): roll/pitch of each prior taken from the accelerometer (mean of the last
 --imu-window s of /cam2/imu, rotated to cam2_link with /tf_static) aligned with the given gravity direction in the map
 frame; heading and position unchanged. A query is stopped if no odometry arrives for --stall-timeout s (wall time).
 Outputs (--out-dir): queries.csv, attempts.csv, post_localization.csv, localize_info.json, q<NNN>/ (bag + logs).
 
-Usage (inside the container, ROS sourced):
-  python3 localize_query.py --bag <bag> --map-run <isaac_maps/<capture>> --out-dir <dir> [--t1 20 35] [--t-prev 0 1 3 5]
+Usage (inside the container, ROS sourced, working directory = data folder /workspaces/isaac_ros-dev):
+  python3 localize_query.py --bag <bag> --map-run <isaac_maps/<config>/<capture>> --out-dir <dir> [--t1 20 35]
+                            [--t-prev 0 1 3 5] [--config cam2_stereo_imu|cam1_cam2_stereo]
+  python3 localize_query.py --config cam1_cam2_stereo --capture loop_closure --bag <bag>
+      (default paths: --map-run localization/isaac_maps/<config>/<capture>,
+                      --out-dir localization/isaac_localize/<config>/<capture>)
 """
 import argparse
 import bisect
@@ -53,8 +64,17 @@ from tf2_ros import Buffer, TransformListener
 
 NS = 1_000_000_000
 HERE = os.path.dirname(os.path.abspath(__file__))
-PLAY_TOPICS = ["/cam2/infra1/image_rect_raw", "/cam2/infra1/camera_info", "/cam2/infra2/image_rect_raw",
-               "/cam2/infra2/camera_info", "/cam2/imu"]
+CAM2_TOPICS = ["/cam2/infra1/image_rect_raw", "/cam2/infra1/camera_info", "/cam2/infra2/image_rect_raw",
+               "/cam2/infra2/camera_info"]
+CAM1_TOPICS = ["/cam1/infra1/image_rect_raw", "/cam1/infra1/camera_info", "/cam1/infra2/image_rect_raw",
+               "/cam1/infra2/camera_info"]
+# input configurations: launch file (in this folder) and topics played from the bag
+CONFIGS = {
+    "cam2_stereo_imu": {"launch": "cuvslam_stereo_imu_cam2_localize.launch.py", "play": CAM2_TOPICS + ["/cam2/imu"]},
+    "cam1_cam2_stereo": {"launch": "cuvslam_stereo_cam1_cam2_localize.launch.py", "play": CAM2_TOPICS + CAM1_TOPICS},
+}
+MAPS_ROOT = "localization/isaac_maps"
+LOCALIZE_ROOT = "localization/isaac_localize"
 RECORD_TOPICS = ["/visual_slam/tracking/odometry", "/visual_slam/tracking/slam_path", "/visual_slam/status",
                  "/tf", "/rosout"]
 
@@ -117,6 +137,25 @@ def align_vectors(a, b):
     return np.eye(3) + K + K @ K * ((1 - c) / s ** 2)
 
 
+def rigid_align_rmsd(P, Q):
+    """RMSD (m) between the points P and Q (N x 3, paired by index) after the rigid transform (rotation + translation,
+    no scale) that best maps P onto Q in the least-squares sense (Umeyama / Kabsch with reflection check).
+    Returns (rmsd, R, t) with Q ~ R @ P + t; None if fewer than 3 pairs or the points are (nearly) collinear."""
+    P, Q = np.asarray(P, float), np.asarray(Q, float)
+    if len(P) < 3:
+        return None
+    mp, mq = P.mean(axis=0), Q.mean(axis=0)
+    Pc, Qc = P - mp, Q - mq
+    U, S, Vt = np.linalg.svd(Pc.T @ Qc)        # cross-covariance (up to 1/N)
+    if S[1] < 1e-9 * max(S[0], 1e-12):          # rank < 2: points on a line or one point, rotation undetermined
+        return None
+    D = np.diag([1.0, 1.0, np.sign(np.linalg.det(Vt.T @ U.T)) or 1.0])
+    R = Vt.T @ D @ U.T
+    t = mq - R @ mp
+    rmsd = float(np.sqrt(((P @ R.T + t - Q) ** 2).sum(axis=1).mean()))
+    return rmsd, R, t
+
+
 def pose_error(T, R, g=None):
     d = T[:3, 3] - R[:3, 3]
     c = (np.trace(R[:3, :3].T @ T[:3, :3]) - 1) / 2
@@ -126,13 +165,31 @@ def pose_error(T, R, g=None):
     return e
 
 
-class Trajectory:
-    """Isaac ROS CSV (timestamp s, x, y, z, qx, qy, qz, qw) of cam2_link poses."""
+def interpolate(T0, T1, a):
+    """Pose between T0 (a = 0) and T1 (a = 1): linear position, slerp rotation."""
+    q0, q1 = np.array(rot_to_quat(T0[:3, :3])), np.array(rot_to_quat(T1[:3, :3]))
+    if q0 @ q1 < 0:
+        q1 = -q1
+    d = float(np.clip(q0 @ q1, -1.0, 1.0))
+    th = math.acos(d)
+    q = q0 * (1 - a) + q1 * a if th < 1e-6 else (math.sin((1 - a) * th) * q0 + math.sin(a * th) * q1) / math.sin(th)
+    T = mat(T0[:3, 3] * (1 - a) + T1[:3, 3] * a, q)
+    return T
 
-    def __init__(self, path):
+
+class Trajectory:
+    """Isaac ROS CSV (timestamp s, x, y, z, qx, qy, qz, qw) of cam2_link poses.
+
+    at(ts): pose with the closest stamp within 2 ms; if there is none and interp_gap_ns > 0, the pose interpolated at
+    ts between the two poses around it, if they are at most interp_gap_ns apart. Needed with cam1_cam2_stereo: Isaac
+    ROS stamps each multicamera frame with the header of the cam1 OR of the cam2 image, and the choice changes from run
+    to run, so the frames of a query and of the mapping run can be one cam1-cam2 offset apart (up to ~33 ms)."""
+
+    def __init__(self, path, interp_gap_ns=0):
         rows = list(csv.DictReader(open(path)))
         self.ts = [int(round(float(r["timestamp"]) * NS)) for r in rows]
         self.T = [mat([float(r[k]) for k in "xyz"], [float(r[k]) for k in ("qx", "qy", "qz", "qw")]) for r in rows]
+        self.interp_gap_ns = interp_gap_ns
 
     def last_before(self, ts):
         i = bisect.bisect_right(self.ts, ts) - 1
@@ -141,7 +198,11 @@ class Trajectory:
     def at(self, ts, tol=2_000_000):
         i = bisect.bisect_left(self.ts, ts)
         best = min((j for j in (i - 1, i) if 0 <= j < len(self.ts)), key=lambda j: abs(self.ts[j] - ts), default=None)
-        return self.T[best] if best is not None and abs(self.ts[best] - ts) <= tol else None
+        if best is not None and abs(self.ts[best] - ts) <= tol:
+            return self.T[best]
+        if self.interp_gap_ns > 0 and 0 < i < len(self.ts) and self.ts[i] - self.ts[i - 1] <= self.interp_gap_ns:
+            return interpolate(self.T[i - 1], self.T[i], (ts - self.ts[i - 1]) / (self.ts[i] - self.ts[i - 1]))
+        return None
 
 
 # ----------------------------------------------------------------------------- bag helpers
@@ -397,7 +458,7 @@ def evaluate_bag(qdir, ref, args, qid):
     if settled is None:
         return out, post_rows
     out.update(tf_update_ts_ns=settled, tf_update_delay_s=round((settled - loc[0]) / NS, 3))
-    post = []
+    post, P_pub, P_ref, ts_post = [], [], [], []
     for ts, _, O in odom:
         if ts < settled or ts not in tf:
             continue
@@ -413,14 +474,50 @@ def evaluate_bag(qdir, ref, args, qid):
             if key not in out and ts >= loc[0] + dt * NS:
                 out.update({key: round(e["err_t_m"], 4), f"pub_err_r_deg_{dt}s": round(e["err_r_deg"], 3)})
         post.append(e)
+        P_pub.append(T[:3, 3])
+        P_ref.append(T_ref[:3, 3])
+        ts_post.append(ts)
         post_rows.append([qid, ts, round((ts - loc[0]) / NS, 4), *T[:3, 3].round(5),
                           *np.round(rot_to_quat(T[:3, :3]), 6), round(e["err_t_m"], 4), round(e["err_r_deg"], 3)])
     if post:
         et = np.array([p["err_t_m"] for p in post])
         out.update(post_frames=len(post), post_rmse_t_m=round(float(np.sqrt((et ** 2).mean())), 4),
                    post_max_err_t_m=round(float(et.max()), 4), post_final_err_t_m=round(float(et[-1]), 4),
-                   post_final_err_r_deg=round(post[-1]["err_r_deg"], 3))
+                   post_final_err_r_deg=round(post[-1]["err_r_deg"], 3),
+                   post_duration_s=round((ts_post[-1] - ts_post[0]) / NS, 3))
+        # shape / drift of the segment: RMSD after the best rigid alignment of the published positions onto the
+        # reference positions of the same frames (removes the constant offset of the localization)
+        al = rigid_align_rmsd(P_pub, P_ref)
+        if al is not None:
+            out.update(post_rmsd_aligned_m=round(al[0], 4))
     return out, post_rows
+
+
+def recompute_prior_errors(row, attempts, qdir, odom_map, ref):
+    """--reevaluate: prior errors of a query (queries.csv) and of its attempts (attempts.csv) against the reference,
+    from T_last (odometry.csv at prior_ts_ns) and the odometry recorded in the query bag (same rule as run_query)."""
+    if not row.get("prior_ts_ns") or not row.get("t1_ts_ns"):
+        return
+    _, T_last = odom_map.last_before(int(row["prior_ts_ns"]))
+    ts1 = int(row["t1_ts_ns"])
+    for k in ("prior_err_t_m", "prior_err_r_deg"):
+        row[k] = ""
+    T_ref1 = ref.at(ts1)
+    if T_last is not None and T_ref1 is not None:
+        e = pose_error(T_last, T_ref1)
+        row.update(prior_err_t_m=round(e["err_t_m"], 4), prior_err_r_deg=round(e["err_r_deg"], 3))
+    q_att = [a for a in attempts if a["query"] == row["query"]]
+    if not q_att or T_last is None or not os.path.isdir(os.path.join(qdir, "bag")):
+        return
+    odom = {ts: O for ts, _, O in read_query_bag(os.path.join(qdir, "bag"))[0]}
+    O_first = odom.get(ts1)
+    for a in q_att:
+        O = odom.get(int(a["call_ts_ns"]))
+        T_ref = ref.at(int(a["call_ts_ns"]))
+        if O_first is None or O is None or T_ref is None or a.get("gravity_used") == "True":
+            continue
+        e = pose_error(T_last @ np.linalg.inv(O_first) @ O, T_ref)
+        a.update(prior_err_t_m=round(e["err_t_m"], 4), prior_err_r_deg=round(e["err_r_deg"], 3))
 
 
 def run_query(args, qid, t1, t_prev, odom_map, ref, bag0, tf_static, g_dir, out_rows):
@@ -446,7 +543,7 @@ def run_query(args, qid, t1, t_prev, odom_map, ref, bag0, tf_static, g_dir, out_
                                    *RECORD_TOPICS], stdout=open(f"{qdir}/record.log", "w"),
                                   stderr=subprocess.STDOUT, start_new_session=True)
         time.sleep(2)
-        play = subprocess.Popen(["ros2", "bag", "play", args.bag, "--topics", *PLAY_TOPICS,
+        play = subprocess.Popen(["ros2", "bag", "play", args.bag, "--topics", *CONFIGS[args.config]["play"],
                                  "--start-offset", f"{max(0.0, t1 - 0.1):.3f}",
                                  "--playback-duration", f"{args.duration + 0.1:.3f}"],
                                 stdout=open(f"{qdir}/play.log", "w"), stderr=subprocess.STDOUT,
@@ -501,10 +598,14 @@ def run_query(args, qid, t1, t_prev, odom_map, ref, bag0, tf_static, g_dir, out_
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--config", choices=sorted(CONFIGS), default="cam2_stereo_imu",
+                    help="input configuration: selects launch, played topics and default paths")
     ap.add_argument("--bag", required=True)
-    ap.add_argument("--map-run", required=True, help="folder of map_cam2.sh: map/, odometry.csv, slam_poses.csv")
-    ap.add_argument("--out-dir", required=True)
-    ap.add_argument("--launch", default=os.path.join(HERE, "cuvslam_stereo_imu_cam2_localize.launch.py"))
+    ap.add_argument("--capture", default=None, help="capture name, for the default --map-run / --out-dir")
+    ap.add_argument("--map-run", default=None, help="folder of map_cam2.sh: map/, odometry.csv, slam_poses.csv "
+                    f"(default {MAPS_ROOT}/<config>/<capture>)")
+    ap.add_argument("--out-dir", default=None, help=f"output folder (default {LOCALIZE_ROOT}/<config>/<capture>)")
+    ap.add_argument("--launch", default=None, help="launch file (default: the one of --config)")
     ap.add_argument("--t1", nargs="+", type=float, default=None)
     ap.add_argument("--t1-step", type=float, default=5.0)
     ap.add_argument("--margin", type=float, default=2.0)
@@ -519,13 +620,29 @@ def main():
                     help="gravity direction in the map frame: enables the accelerometer roll/pitch prior correction")
     ap.add_argument("--imu-window", type=float, default=0.5, help="accelerometer averaging window (s)")
     ap.add_argument("--stall-timeout", type=float, default=10.0, help="stop a query after N s without odometry")
+    ap.add_argument("--ref-interp-ms", type=float, default=None,
+                    help="reference lookup: interpolate between reference poses at most this many ms apart when no "
+                         "pose is within 2 ms of the frame (default 0 = off for cam2_stereo_imu, 200 for "
+                         "cam1_cam2_stereo, whose frame stamps switch between cam1 and cam2)")
     ap.add_argument("--reevaluate", action="store_true",
                     help="recompute the localization metrics of an existing --out-dir from the recorded query bags")
     args = ap.parse_args()
+    if args.ref_interp_ms is None:
+        args.ref_interp_ms = 200.0 if args.config == "cam1_cam2_stereo" else 0.0
+    if args.launch is None:
+        args.launch = os.path.join(HERE, CONFIGS[args.config]["launch"])
+    for key, root in (("map_run", MAPS_ROOT), ("out_dir", LOCALIZE_ROOT)):
+        if getattr(args, key) is None:
+            if not args.capture:
+                ap.error(f"--{key.replace('_', '-')} or --capture is required")
+            setattr(args, key, os.path.join(root, args.config, args.capture))
+    if args.g_map and "/cam2/imu" not in CONFIGS[args.config]["play"]:
+        ap.error(f"--g-map needs /cam2/imu, which --config {args.config} does not play")
     os.makedirs(args.out_dir, exist_ok=True)
 
     odom_map = Trajectory(os.path.join(args.map_run, "odometry.csv"))     # prior
-    ref = Trajectory(os.path.join(args.map_run, "slam_poses.csv"))        # reference
+    ref = Trajectory(os.path.join(args.map_run, "slam_poses.csv"),        # reference
+                     interp_gap_ns=int(args.ref_interp_ms * 1e6))
     offset = header_offset_ns(args.bag)
     bag0 = bag_start_ns(args.bag) - offset      # bag start in the header-stamp time base
     if abs(offset) > NS:
@@ -549,10 +666,13 @@ def main():
         loc_keys = ["loc_ts_ns", "loc_delay_s", "loc_err_t_m", "loc_err_r_deg", "loc_err_vert_m", "loc_log_err_t_m",
                     "log_frame_offset", "localizer_tp", "published_tp", "within_threshold", "tf_update_delay_s",
                     "pub_err_t_m_1s", "pub_err_r_deg_1s", "pub_err_t_m_2s", "pub_err_r_deg_2s", "post_frames",
-                    "post_rmse_t_m", "post_max_err_t_m", "post_final_err_t_m", "post_final_err_r_deg"]
+                    "post_rmse_t_m", "post_max_err_t_m", "post_final_err_t_m", "post_final_err_r_deg",
+                    "post_duration_s", "post_rmsd_aligned_m"]
         for r in rows:
             for k in loc_keys:
                 r.pop(k, None)
+            recompute_prior_errors(r, out["attempts"], os.path.join(args.out_dir, f"q{int(r['query']):03d}"),
+                                   odom_map, ref)
             if r["localized"] == "True":
                 upd, post_rows = evaluate_bag(os.path.join(args.out_dir, f"q{int(r['query']):03d}"), ref, args,
                                               int(r["query"]))
@@ -578,7 +698,7 @@ def main():
                 "loc_err_r_deg", "loc_log_err_t_m", "log_frame_offset", "localizer_tp", "published_tp", "tf_update_delay_s",
                 "pub_err_t_m_1s", "pub_err_r_deg_1s", "pub_err_t_m_2s", "pub_err_r_deg_2s", "first_attempt_latency_ms",
                 "ok_attempt_latency_ms", "post_frames", "post_rmse_t_m", "post_max_err_t_m", "post_final_err_t_m",
-                "post_final_err_r_deg", "frames_tracked", "query_wall_s", "stalled"]
+                "post_final_err_r_deg", "post_duration_s", "post_rmsd_aligned_m", "frames_tracked", "query_wall_s", "stalled"]
     a_header = ["query", "attempt", "call_ts_ns", "frame_ts_ns", "t_from_t1_s", "prior_err_t_m", "prior_err_r_deg",
                 "gravity_used", "ok", "latency_ms", "message"]
     for name, header, rows in (("queries.csv", q_header, [[r.get(k, "") for k in q_header] for r in out["queries"]]),
@@ -589,9 +709,9 @@ def main():
             w = csv.writer(f)
             w.writerow(header)
             w.writerows(rows)
-    json.dump({"script": "localize_query.py", "bag": args.bag, "map_run": args.map_run, "launch": args.launch,
+    json.dump({"script": "localize_query.py", "config": args.config, "bag": args.bag, "map_run": args.map_run, "launch": args.launch,
                "t1": t1s, "t_prev": args.t_prev, "duration_s": args.duration, "attempts": args.attempts,
-               "attempt_every_s": args.attempt_every, "threshold": {"t_m": args.thr_t, "r_deg": args.thr_r},
+               "attempt_every_s": args.attempt_every, "ref_interp_ms": args.ref_interp_ms, "threshold": {"t_m": args.thr_t, "r_deg": args.thr_r},
                "g_map": args.g_map, "imu_window_s": args.imu_window, "stall_timeout_s": args.stall_timeout},
               open(os.path.join(args.out_dir, "localize_info.json"), "w"), indent=2)
 
