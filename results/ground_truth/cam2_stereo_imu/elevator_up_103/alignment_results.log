@@ -1,16 +1,16 @@
 === Rigid Trajectory ICP (No Scaling) Completed ===
-Source File             : D:\VRHealth\VRHealth_Challenge13\results\slam_csv\cam2_stereo_imu\elevator_up_103\slam_poses.csv
-Target File             : D:\VRHealth\VRHealth_Challenge13\results\ground_truth\cam2_stereo_imu\elevator_up_103\paths3d.csv
-Target Points           : 3 raw -> 2001 densified
+Source File             : ..\slam_csv\cam2_stereo_imu\elevator_up_103\slam_poses.csv
+Target File             : cam2_stereo_imu\elevator_up_103\paths3d.csv
+Target Points           : 3 raw -> 2002 densified
 Source Points           : 482
-Iterations              : 15
+Iterations              : 14
 Applied Scale Factor    : 1.000000
 Source Path Length      : 8.809985 m
-Target Path Length      : 9.384900 m
-Relative Length Error   : 6.1260 %
-Point-to-Target RMSE    : 0.201467 m
-Symmetric Chamfer RMSE  : 1.009201 m
-Mean Euclidean Error    : 0.141694 m
-Arc-Length ATE RMSE     : 2.347962 m
-Arc-Length ATE MAE      : 2.155450 m
-Aligned path saved to   : D:\VRHealth\VRHealth_Challenge13\results\ground_truth\cam2_stereo_imu\elevator_up_103\aligned_odometry.csv
+Target Path Length      : 12.398900 m
+Relative Length Error   : 28.9454 %
+Point-to-Target RMSE    : 0.257070 m
+Symmetric Chamfer RMSE  : 1.341308 m
+Mean Euclidean Error    : 0.187660 m
+Arc-Length ATE RMSE     : 2.933046 m
+Arc-Length ATE MAE      : 2.695959 m
+Aligned path saved to   : cam2_stereo_imu\elevator_up_103\aligned_odometry.csv
