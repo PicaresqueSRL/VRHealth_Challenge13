@@ -3,150 +3,76 @@
 <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
 	 viewBox="0 0 1920 1080" style="enable-background:new 0 0 1920 1080;" xml:space="preserve">
 <style type="text/css">
-	.st0{fill:none;stroke:#1D1D1B;stroke-width:1.6635;stroke-miterlimit:10;}
-	.st1{fill:none;}
-	.st2{fill-rule:evenodd;clip-rule:evenodd;fill:#1D1D1B;}
-	.st3{fill:#1D1D1B;}
-	.st4{font-family:'MyriadPro-Regular';}
-	.st5{font-size:12px;}
-	.st6{fill:none;stroke:#1D1D1B;stroke-miterlimit:10;}
-	.st7{fill:none;stroke:#F29100;stroke-width:1.6635;stroke-miterlimit:10;}
-	.st8{fill:#E20613;stroke:#E20613;stroke-width:1.6635;stroke-miterlimit:10;}
+	.st0{fill:#1D1D1B;}
+	.st1{font-family:'ArialMT';}
+	.st2{font-size:12px;}
+	.st3{fill:none;stroke:#1D1D1B;stroke-miterlimit:10;}
+	.st4{fill:none;stroke:#F29100;stroke-width:1.6635;stroke-miterlimit:10;}
+	.st5{fill:#E20613;stroke:#E20613;stroke-width:1.6635;stroke-miterlimit:10;}
+	.st6{fill:none;stroke:#1D1D1B;stroke-width:0.7191;stroke-miterlimit:10;}
+	.st7{fill:none;stroke:#1D1D1B;stroke-width:0.7137;stroke-miterlimit:10;}
 </style>
-<g id="PERIMETRI">
-	<line class="st0" x1="837.8" y1="537.4" x2="958.7" y2="537.4"/>
-	<line class="st0" x1="1002.3" y1="537.4" x2="1073.9" y2="537.4"/>
-	<line class="st0" x1="838.6" y1="486.4" x2="1073.9" y2="486.4"/>
-	<rect x="887.5" y="528" class="st0" width="8.5" height="8.5"/>
-	<rect x="958.7" y="537.4" class="st0" width="8.5" height="8.5"/>
-	<rect x="993.8" y="537.4" class="st0" width="8.5" height="8.5"/>
-	<rect x="838.6" y="528" class="st0" width="8.5" height="8.5"/>
-	<line class="st0" x1="958.7" y1="545.8" x2="993.8" y2="545.8"/>
-	<line class="st0" x1="1121.4" y1="537.4" x2="1242.3" y2="537.4"/>
-	<line class="st0" x1="1122.2" y1="486.4" x2="1285.9" y2="486.4"/>
-	<rect x="1242.3" y="537.4" class="st0" width="8.5" height="8.5"/>
-	<rect x="1277.4" y="537.4" class="st0" width="8.5" height="8.5"/>
-	<line class="st0" x1="1250.8" y1="545.8" x2="1285.9" y2="545.8"/>
-	<line class="st0" x1="1073.9" y1="537.4" x2="1073.9" y2="572.8"/>
-	<line class="st0" x1="1073.9" y1="455.2" x2="1073.9" y2="490.6"/>
-	<line class="st0" x1="1121.4" y1="537.4" x2="1121.4" y2="572.8"/>
-	<line class="st0" x1="1121.4" y1="455.2" x2="1121.4" y2="490.6"/>
-	<g>
+<g id="MISURA_1_">
+	<g id="MISURA">
 		<g>
-			<g>
-				<g>
-					<g>
-						<g>
-							<rect x="1061.5" y="485.5" class="st1" width="25" height="26.5"/>
-						</g>
-						<rect x="1072.3" y="505.1" class="st2" width="2.5" height="4.9"/>
-						<rect x="1072.3" y="496.3" class="st2" width="2.5" height="4.9"/>
-						<rect x="1072.3" y="487.5" class="st2" width="2.5" height="4.9"/>
-					</g>
-				</g>
-				<g>
-					<g>
-						<g>
-							<rect x="1061.5" y="512" class="st1" width="25" height="26.5"/>
-						</g>
-						<rect x="1072.3" y="531.6" class="st2" width="2.5" height="4.9"/>
-						<rect x="1072.3" y="522.8" class="st2" width="2.5" height="4.9"/>
-						<rect x="1072.3" y="514" class="st2" width="2.5" height="4.9"/>
-					</g>
-				</g>
-			</g>
+			<text transform="matrix(1 0 0 1 984.1017 601.8702)" class="st0 st1 st2">5m</text>
+			<line class="st3" x1="965.6" y1="587.5" x2="1022.5" y2="587.5"/>
 		</g>
-	</g>
-	<g>
-		<g>
-			<g>
-				<g>
-					<g>
-						<g>
-							<rect x="825.3" y="489" class="st1" width="25" height="24.7"/>
-						</g>
-						<rect x="836.1" y="507.3" class="st2" width="2.5" height="4.6"/>
-						<rect x="836.1" y="499.1" class="st2" width="2.5" height="4.6"/>
-						<rect x="836.1" y="490.9" class="st2" width="2.5" height="4.6"/>
-					</g>
-				</g>
-				<g>
-					<g>
-						<g>
-							<rect x="825.3" y="513.7" class="st1" width="25" height="24.7"/>
-						</g>
-						<rect x="836.1" y="532" class="st2" width="2.5" height="4.6"/>
-						<rect x="836.1" y="523.8" class="st2" width="2.5" height="4.6"/>
-						<rect x="836.1" y="515.6" class="st2" width="2.5" height="4.6"/>
-					</g>
-				</g>
-			</g>
-		</g>
-	</g>
-	<g>
-		<g>
-			<g>
-				<g>
-					<g>
-						<g>
-							<rect x="1109.8" y="485.5" class="st1" width="25" height="24.7"/>
-						</g>
-						<rect x="1120.6" y="503.8" class="st2" width="2.5" height="4.6"/>
-						<rect x="1120.6" y="495.5" class="st2" width="2.5" height="4.6"/>
-						<rect x="1120.6" y="487.3" class="st2" width="2.5" height="4.6"/>
-					</g>
-				</g>
-				<g>
-					<g>
-						<g>
-							<rect x="1109.8" y="510.2" class="st1" width="25" height="24.7"/>
-						</g>
-						<rect x="1120.6" y="528.5" class="st2" width="2.5" height="4.6"/>
-						<rect x="1120.6" y="520.3" class="st2" width="2.5" height="4.6"/>
-						<rect x="1120.6" y="512.1" class="st2" width="2.5" height="4.6"/>
-					</g>
-				</g>
-			</g>
-		</g>
-	</g>
-	<path class="st0" d="M841,513.7"/>
-	<g>
-		<g>
-			<g>
-				<g>
-					<g>
-						<g>
-							<rect x="1096.7" y="529.1" class="st1" width="24.7" height="25"/>
-						</g>
-						<rect x="1098.5" y="540" class="st2" width="4.6" height="2.5"/>
-						<rect x="1106.7" y="540" class="st2" width="4.6" height="2.5"/>
-						<rect x="1114.9" y="540" class="st2" width="4.6" height="2.5"/>
-					</g>
-				</g>
-				<g>
-					<g>
-						<g>
-							<rect x="1071.9" y="529.1" class="st1" width="24.7" height="25"/>
-						</g>
-						<rect x="1073.8" y="540" class="st2" width="4.6" height="2.5"/>
-						<rect x="1082" y="540" class="st2" width="4.6" height="2.5"/>
-						<rect x="1090.2" y="540" class="st2" width="4.6" height="2.5"/>
-					</g>
-				</g>
-			</g>
-		</g>
-	</g>
-</g>
-<g id="MISURA">
-	<g>
-		<text transform="matrix(1 0 0 1 613.7603 605.1009)" class="st3 st4 st5">5m</text>
-		<line class="st6" x1="595.3" y1="590.7" x2="652.2" y2="590.7"/>
 	</g>
 </g>
 <g id="PERCORSI">
 	<g>
-		<line class="st7" x1="838.4" y1="513.7" x2="1095.4" y2="513.7"/>
-		<circle class="st8" cx="1095.8" cy="513.9" r="3.7"/>
+		<line class="st4" x1="786.2" y1="509.3" x2="1188.5" y2="509.3"/>
+		<circle class="st5" cx="1192.2" cy="509.5" r="3.7"/>
 	</g>
+</g>
+<g id="PERIMETRO">
+	<line class="st6" x1="871.2" y1="491.1" x2="796.5" y2="491.1"/>
+	<line class="st6" x1="951.5" y1="491.1" x2="881.6" y2="491.1"/>
+	<path class="st6" d="M951.5,491.1"/>
+	<line class="st6" x1="1049.3" y1="491.1" x2="961.6" y2="491.1"/>
+	<path class="st6" d="M1049.3,491.1"/>
+	<line class="st6" x1="1085" y1="491.1" x2="1071.3" y2="491.1"/>
+	<line class="st6" x1="834.9" y1="528" x2="796.5" y2="528"/>
+	<path class="st6" d="M834.9,528"/>
+	<line class="st6" x1="908.1" y1="528" x2="857.4" y2="528"/>
+	<path class="st6" d="M908.1,528"/>
+	<line class="st6" x1="1076.1" y1="528" x2="931" y2="528"/>
+	<line class="st6" x1="1121.1" y1="528" x2="1098" y2="528"/>
+	<line class="st6" x1="1191.6" y1="528" x2="1140.2" y2="528"/>
+	<line class="st6" x1="834.9" y1="527.7" x2="834.9" y2="537.4"/>
+	<line class="st6" x1="857.4" y1="527.7" x2="857.4" y2="537.4"/>
+	<line class="st6" x1="834.9" y1="537" x2="857.4" y2="537"/>
+	<line class="st6" x1="908.1" y1="527.7" x2="908.1" y2="537.4"/>
+	<line class="st6" x1="930.6" y1="527.7" x2="930.6" y2="537.4"/>
+	<line class="st6" x1="908.1" y1="537" x2="930.6" y2="537"/>
+	<line class="st6" x1="1076.1" y1="527.7" x2="1076.1" y2="537.4"/>
+	<line class="st6" x1="1098.6" y1="527.7" x2="1098.6" y2="537.4"/>
+	<line class="st6" x1="1076.1" y1="537" x2="1098.6" y2="537"/>
+	<line class="st6" x1="1121.1" y1="527.7" x2="1121.1" y2="537.4"/>
+	<line class="st6" x1="1140.2" y1="527.7" x2="1140.2" y2="537.4"/>
+	<line class="st6" x1="1121.1" y1="537" x2="1140.2" y2="537"/>
+	<line class="st6" x1="871.2" y1="481.8" x2="871.2" y2="491.5"/>
+	<line class="st6" x1="881.6" y1="481.8" x2="881.6" y2="491.5"/>
+	<line class="st6" x1="881.6" y1="482.1" x2="870.9" y2="482.1"/>
+	<line class="st6" x1="951.2" y1="481.8" x2="951.2" y2="491.5"/>
+	<line class="st6" x1="961.5" y1="481.8" x2="961.5" y2="491.5"/>
+	<line class="st6" x1="961.6" y1="482.1" x2="950.9" y2="482.1"/>
+	<line class="st6" x1="1169.5" y1="491.1" x2="1150.5" y2="491.1"/>
+	<line class="st6" x1="1191.6" y1="491.1" x2="1179.8" y2="491.1"/>
+	<line class="st6" x1="1191.6" y1="491.1" x2="1188.9" y2="491.1"/>
+	<line class="st6" x1="1140" y1="491.1" x2="1109.3" y2="491.1"/>
+	<path class="st6" d="M1178.8,491.1"/>
+	<line class="st7" x1="1169.5" y1="481.8" x2="1169.5" y2="491.4"/>
+	<line class="st6" x1="1179.8" y1="481.8" x2="1179.8" y2="491.5"/>
+	<line class="st7" x1="1179.8" y1="482.2" x2="1169.2" y2="482.2"/>
+	<line class="st7" x1="1140.2" y1="481.8" x2="1140.2" y2="491.4"/>
+	<line class="st6" x1="1150.5" y1="481.8" x2="1150.5" y2="491.5"/>
+	<line class="st7" x1="1150.5" y1="482.2" x2="1139.9" y2="482.2"/>
+	<line class="st6" x1="1071.6" y1="491.5" x2="1071.6" y2="481.7"/>
+	<line class="st6" x1="1049.1" y1="491.5" x2="1049.1" y2="481.7"/>
+	<line class="st6" x1="1071.6" y1="482.1" x2="1049.1" y2="482.1"/>
+	<line class="st6" x1="1084.6" y1="491.2" x2="1084.6" y2="431"/>
+	<line class="st6" x1="1109.7" y1="491.2" x2="1109.7" y2="431"/>
 </g>
 </svg>

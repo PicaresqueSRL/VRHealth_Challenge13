@@ -1,16 +1,16 @@
 === Rigid Trajectory ICP (No Scaling) Completed ===
-Source File             : D:\VRHealth\VRHealth_Challenge13\results\slam_csv\cam1_cam2_stereo\internal_corridor_104\slam_poses.csv
-Target File             : D:\VRHealth\VRHealth_Challenge13\results\ground_truth\cam1_cam2_stereo\internal_corridor_104\paths3d.csv
-Target Points           : 2 raw -> 2002 densified
+Source File             : ..\slam_csv\cam1_cam2_stereo\internal_corridor_104\slam_poses.csv
+Target File             : cam1_cam2_stereo\internal_corridor_104\paths3d.csv
+Target Points           : 2 raw -> 2001 densified
 Source Points           : 461
-Iterations              : 79
+Iterations              : 98
 Applied Scale Factor    : 1.000000
 Source Path Length      : 39.964784 m
-Target Path Length      : 22.583500 m
-Relative Length Error   : 76.9645 %
-Point-to-Target RMSE    : 3.020213 m
-Symmetric Chamfer RMSE  : 2.136274 m
-Mean Euclidean Error    : 1.705545 m
-Arc-Length ATE RMSE     : 4.808629 m
-Arc-Length ATE MAE      : 4.108435 m
-Aligned path saved to   : D:\VRHealth\VRHealth_Challenge13\results\ground_truth\cam1_cam2_stereo\internal_corridor_104\aligned_odometry.csv
+Target Path Length      : 35.351500 m
+Relative Length Error   : 13.0498 %
+Point-to-Target RMSE    : 0.324358 m
+Symmetric Chamfer RMSE  : 0.237595 m
+Mean Euclidean Error    : 0.152763 m
+Arc-Length ATE RMSE     : 0.937652 m
+Arc-Length ATE MAE      : 0.803066 m
+Aligned path saved to   : cam1_cam2_stereo\internal_corridor_104\aligned_odometry.csv
